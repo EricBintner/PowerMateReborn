@@ -1,0 +1,315 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.PowerMateDriver-arm64-apple-macosx15.0-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/sources",
+      "importPath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/AppDelegate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/BrightnessController.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/PowerMateHID.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/VolumeController.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "PowerMateDriver",
+      "moduleOutputPath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/Modules/PowerMateDriver.swiftmodule",
+      "objects" : [
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/AppDelegate.swift.o",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/BrightnessController.swift.o",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/PowerMateHID.swift.o",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/VolumeController.swift.o",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/main.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-enable-batch-mode",
+        "-index-store-path",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j20",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-module-cache-path",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "PowerMateDriver_main",
+        "-color-diagnostics",
+        "-swift-version",
+        "5",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "powermatedriver"
+      ],
+      "outputFileMapPath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/AppDelegate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/BrightnessController.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/PowerMateHID.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/VolumeController.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/Modules/PowerMateDriver.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/AppDelegate.swift",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/BrightnessController.swift",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/PowerMateHID.swift",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/VolumeController.swift",
+        "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/main.swift"
+      ],
+      "tempsPath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "PowerMateDriver" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "PowerMateDriver",
+      "-package-name",
+      "powermatedriver",
+      "-incremental",
+      "-c",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/AppDelegate.swift",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/BrightnessController.swift",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/PowerMateHID.swift",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/VolumeController.swift",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/main.swift",
+      "-I",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-enable-batch-mode",
+      "-index-store-path",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j20",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-module-cache-path",
+      "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "PowerMateDriver_main",
+      "-color-diagnostics",
+      "-swift-version",
+      "5",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "powermatedriver",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "PowerMateDriver" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "writeCommands" : {
+    "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver-entitlement.plist"
+    },
+    "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/AppDelegate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/BrightnessController.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/PowerMateHID.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/VolumeController.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/Sources/main.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/sources"
+    },
+    "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/AppDelegate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/BrightnessController.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/PowerMateHID.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/VolumeController.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.build/main.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/PowerMateDriver.product/Objects.LinkFileList"
+    },
+    "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/ericbintner/Downloads/PowerMate/PowerMateDriver/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}
