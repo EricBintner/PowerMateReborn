@@ -17,11 +17,11 @@ enum KnobMode: String, CaseIterable {
         }
     }
 
-    var menuBarIcon: String {
+    var menuBarImage: NSImage {
         switch self {
-        case .volume:     return "dial.medium.fill"
-        case .brightness: return "dial.medium.fill"
-        case .custom:     return "dial.medium.fill"
+        case .volume:     return MenuBarIcon.volume()
+        case .brightness: return MenuBarIcon.brightness()
+        case .custom:     return MenuBarIcon.custom()
         }
     }
 }
@@ -82,17 +82,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private func updateStatusDisplay() {
         guard let button = statusItem.button else { return }
 
+        button.title = ""
         if !powerMate.isConnected {
-            button.title = "PM:--"
-            button.image = nil
+            button.image = MenuBarIcon.disconnected()
         } else {
-            switch currentMode {
-            case .volume:     button.title = "PM:VOL"
-            case .brightness: button.title = "PM:BRT"
-            case .custom:     button.title = "PM:CUS"
-            }
-            button.image = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil)
+            button.image = currentMode.menuBarImage
         }
+        button.imagePosition = .imageOnly
         NSLog("Menu: title='%@' connected=%d", button.title, powerMate.isConnected)
     }
 
@@ -100,21 +96,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        // --- Connection status (label only) ---
-        let connected = powerMate.isConnected
-        let statusTitle = connected ? "[*] PowerMate Connected" : "[ ] PowerMate Not Connected"
+        // --- Connection Status ---
+        let statusTitle = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Disconnected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        // --- Mode: clickable to switch ---
+        // --- Active Mode Selection ---
+        let modeHeader = NSMenuItem(title: "Active Mode", action: nil, keyEquivalent: "")
+        modeHeader.isEnabled = false
+        menu.addItem(modeHeader)
+
         for mode in KnobMode.allCases {
             guard enabledModes.contains(mode) else { continue }
             let isCurrent = (mode == currentMode)
-            let prefix = isCurrent ? ">> " : "     "
-            let item = NSMenuItem(title: "\(prefix)\(mode.rawValue)", action: #selector(switchToMode(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: "    \(mode.rawValue)", action: #selector(switchToMode(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = mode.rawValue
             if let img = NSImage(systemSymbolName: mode.icon, accessibilityDescription: nil) {
@@ -124,65 +121,72 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             menu.addItem(item)
         }
 
-        let hintItem = NSMenuItem(title: "  Press: action | 2x tap: snap | Hold: cycle", action: nil, keyEquivalent: "")
-        hintItem.isEnabled = false
+        let hintItem = NSMenuItem(title: "    (Press: action | 2x tap: snap | Hold: cycle)", action: nil, keyEquivalent: "")
+        hintItem.isEnabled = false // Help text should be grayed
         menu.addItem(hintItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        // --- Volume section (always visible) ---
+        // --- Controls Status ---
         let vol = volumeController.getVolume()
         let volLabel = NSMenuItem(title: "Volume: \(Int(vol * 100))%", action: nil, keyEquivalent: "")
-        volLabel.isEnabled = false
         volLabel.tag = 100
+        if let img = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil) {
+            volLabel.image = img
+        }
         menu.addItem(volLabel)
 
         let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Unmute" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
         muteItem.target = self
         menu.addItem(muteItem)
 
-        let deviceTag = volumeController.isSoftwareVolume ? "SW" : "HW"
-        let deviceInfo = NSMenuItem(title: "  [\(deviceTag)] \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))", action: nil, keyEquivalent: "")
-        deviceInfo.isEnabled = false
-        menu.addItem(deviceInfo)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // --- Brightness section (always visible) ---
         let br = brightnessController.getCurrentBrightness()
         let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%", action: nil, keyEquivalent: "")
-        brLabel.isEnabled = false
         brLabel.tag = 101
+        if let img = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
+            brLabel.image = img
+        }
         menu.addItem(brLabel)
-
-        let brMethod = NSMenuItem(title: "  [\(brightnessController.method.rawValue)]", action: nil, keyEquivalent: "")
-        brMethod.isEnabled = false
-        menu.addItem(brMethod)
 
         menu.addItem(NSMenuItem.separator())
 
-        // --- Audio Devices submenu (clickable to switch) ---
+        // --- Settings Submenus ---
+
+        // Output Device Picker
         let deviceMenu = NSMenu()
         deviceMenu.autoenablesItems = false
         let defaultID = volumeController.activeDeviceID
         for dev in volumeController.allOutputDevices {
             let isActive = dev.deviceID == defaultID
-            let volIcon = (dev.hasVolumeScalar || dev.hasChannelVolume || dev.hasVirtualMaster) ? ">>" : "--"
+            // Clean up name: remove common suffixes for a cleaner native look
+            var cleanName = dev.name
+            if cleanName.hasSuffix(" Speakers") { cleanName = cleanName.replacingOccurrences(of: " Speakers", with: "") }
+            
             let item = NSMenuItem(
-                title: "\(volIcon) \(dev.name) -- \(dev.transportName)",
+                title: cleanName,
                 action: #selector(switchAudioDevice(_:)),
                 keyEquivalent: ""
             )
             item.target = self
             item.tag = Int(dev.deviceID)
             if isActive { item.state = .on }
+            
+            // Add icon indicating control capability
+            let iconName = (dev.hasVolumeScalar || dev.hasChannelVolume || dev.hasVirtualMaster) ? "speaker.wave.2.fill" : "speaker.slash.fill"
+            if let img = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
+                item.image = img
+            }
+            
             deviceMenu.addItem(item)
         }
-        let deviceItem = NSMenuItem(title: "Audio Devices", action: nil, keyEquivalent: "")
+        let deviceItem = NSMenuItem(title: "Output Device", action: nil, keyEquivalent: "")
         deviceItem.submenu = deviceMenu
+        if let img = NSImage(systemSymbolName: "headphones", accessibilityDescription: nil) {
+            deviceItem.image = img
+        }
         menu.addItem(deviceItem)
 
-        // --- Enabled Modes submenu ---
+        // Enabled Modes Config
         let modesMenu = NSMenu()
         modesMenu.autoenablesItems = false
         for mode in KnobMode.allCases {
@@ -190,16 +194,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             item.target = self
             item.representedObject = mode.rawValue
             item.state = enabledModes.contains(mode) ? .on : .off
-            if let img = NSImage(systemSymbolName: mode.icon, accessibilityDescription: nil) {
-                item.image = img
-            }
             modesMenu.addItem(item)
         }
         let modesItem = NSMenuItem(title: "Enabled Modes", action: nil, keyEquivalent: "")
         modesItem.submenu = modesMenu
+        if let img = NSImage(systemSymbolName: "checklist", accessibilityDescription: nil) {
+            modesItem.image = img
+        }
         menu.addItem(modesItem)
 
-        // --- Sensitivity submenu ---
+        // Sensitivity Config
         let sensitivityMenu = NSMenu()
         sensitivityMenu.autoenablesItems = false
         for (label, value) in [("Low (1%)", Float(0.01)), ("Medium (3%)", Float(0.03)), ("High (5%)", Float(0.05)), ("Very High (8%)", Float(0.08))] {
@@ -211,9 +215,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         let sensitivityItem = NSMenuItem(title: "Sensitivity", action: nil, keyEquivalent: "")
         sensitivityItem.submenu = sensitivityMenu
+        if let img = NSImage(systemSymbolName: "dial.min", accessibilityDescription: nil) {
+            sensitivityItem.image = img
+        }
         menu.addItem(sensitivityItem)
 
-        // --- LED submenu ---
+        // LED Config
         let ledMenu = NSMenu()
         ledMenu.autoenablesItems = false
         let ledFollowItem = NSMenuItem(title: "Follow Level", action: #selector(ledFollowLevel(_:)), keyEquivalent: "")
@@ -222,19 +229,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         ledMenu.addItem(ledFollowItem)
         ledMenu.addItem(NSMenuItem.separator())
 
-        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright)), ("Breathe (slow fade in/out)", #selector(ledPulse))] {
+        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright)), ("Breathe", #selector(ledPulse))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             ledMenu.addItem(item)
         }
 
-        let ledItem = NSMenuItem(title: "LED", action: nil, keyEquivalent: "")
+        let ledItem = NSMenuItem(title: "LED Effect", action: nil, keyEquivalent: "")
         ledItem.submenu = ledMenu
+        if let img = NSImage(systemSymbolName: "lightbulb", accessibilityDescription: nil) {
+            ledItem.image = img
+        }
         menu.addItem(ledItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "Quit PowerMate Driver", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit PowerMate", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 

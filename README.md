@@ -6,15 +6,20 @@ A project to resurrect the classic Griffin PowerMate USB for modern Mac setups (
 
 Since the official drivers haven't worked in years, this is a native Swift menu bar app built from scratch to bring that awesome piece of hardware back to life.
 
+## What It Does
+
+Transform your Griffin PowerMate into a dedicated media control knob for your Mac. Rotate for precise volume and brightness adjustments, press for mute or mode switching, and enjoy smooth LED feedback that matches your system's state.
+
 ## Features
 
 - **Native Swift IOKit HID Integration:** Directly reads USB events without relying on legacy drivers or Rosetta.
 - **Lightweight Menu Bar App:** Unobtrusive control and mode switching directly from your macOS menu bar.
 - **Multi-Mode Support:**
-  - 🔊 **Volume Mode:** Controls system volume using CoreAudio, with intelligent fallbacks (e.g., AppleScript) for tricky setups.
-  - ☀️ **Brightness Mode:** Controls display brightness utilizing DisplayServices private APIs (and planned DDC/CI support for external monitors).
-  - ⚙️ **Custom Mode:** (In Development) Programmable actions and macros.
-- **Gesture Recognition:** Supports single press, long press (mode cycling), and rotational inputs (with double-tap planned).
+  - 🔊 **Volume Mode:** Smooth rotational volume control with instant mute via button press. Works with all macOS audio devices through intelligent fallback strategies.
+  - ☀️ **Brightness Mode:** Precise display brightness adjustment via knob rotation, with button press for keyboard brightness keys. Supports external monitors via planned DDC/CI.
+  - ⚙️ **Custom Mode:** (In Development) Programmable actions and macros for future customization.
+- **Gesture Recognition:** Supports single press (mute/action), long press (mode cycling), and rotational inputs (with double-tap planned).
+- **LED Feedback:** Visual feedback through the PowerMate's LED ring, reflecting current volume or brightness levels.
 
 ## Hardware Requirements
 
