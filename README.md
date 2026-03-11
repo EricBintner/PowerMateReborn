@@ -1,6 +1,6 @@
 # PowerMateReborn
 
-![Griffin PowerMate on macOS Sequoia](images/griffin-technology-powermate-to-work-with-sequoia-v0-2ok0f592pyee1.jpg.webp)
+![Griffin PowerMate on macOS Sequoia](images/griffin-technology-powermate-mac-os9.png)
 
 A project to resurrect the classic Griffin PowerMate USB for modern Mac setups (Apple Silicon and macOS Sequoia+). 
 
