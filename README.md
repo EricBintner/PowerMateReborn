@@ -10,56 +10,89 @@ Since the official drivers haven't worked in years, this is a native Swift menu 
 
 ## What It Does
 
-Transform your Griffin PowerMate into a dedicated media control knob for your Mac. Rotate for precise volume and brightness adjustments, press for mute or mode switching, and enjoy smooth LED feedback that matches your system's state.
+Transform your Griffin PowerMate into a dedicated media control knob for your Mac. Four modes -- Volume, Brightness, MIDI, and Custom -- let you control anything from system audio to DAW plugins to arbitrary keyboard shortcuts, all with smooth LED feedback.
 
 ## Quick Start
 
-- **Rotate:** Adjust volume, brightness, or MIDI CC value.
-- **Click:** Snap to preset level (20% vol / 15% brightness). Click again to restore.
-- **Double-tap:** Mute audio or sleep display.
-- **Long Press:** Cycle modes (Volume / Brightness / MIDI).
-- **LED Ring:** Intensity reflects the current level.
+| Gesture | Volume | Brightness | MIDI | Custom |
+|---------|--------|------------|------|--------|
+| **Rotate** | Adjust volume | Adjust brightness | Send MIDI CC | Per-profile action |
+| **Tap** | Snap to 20% (toggle) | Snap to 15% (toggle) | Toggle note | Per-profile action |
+| **Double-tap** | Mute / unmute | Sleep display | Toggle note | Per-profile action |
+| **Long press** | Cycle mode | Cycle mode | Cycle mode | Per-profile action* |
+
+*\*Custom mode can optionally override the long press to assign a custom action or an extended press (hold-to-sustain), which disables mode cycling from the knob while that profile is active.*
 
 ## Features
 
-- **Native Swift Driver:** Pure IOKit HID implementation. No legacy kernel extensions or Rosetta required.
-- **Menu Bar App:** Lightweight and unobtrusive mode switching.
-- **Volume Mode:** Controls all macOS audio devices via CoreAudio with intelligent fallback methods.
-- **Brightness Mode:** Adjusts built-in and external displays (DDC/CI, gamma, and overlay). Syncs all monitors by default, or controls them individually based on mouse cursor position.
-- **MIDI Mode:** Send MIDI CC messages to any DAW or MIDI-capable app. Knob = CC value, press = note.
-- **Hardware Sync:** LED ring brightness tracks the current level in real time.
+### Core Modes
+- **Volume Mode** -- Controls all macOS audio devices via CoreAudio with intelligent fallback (Master > Channel > VirtualMaster > AppleScript > Software).
+- **Brightness Mode** -- Adjusts built-in and external displays via DisplayServices, DDC/CI hardware, gamma tables, or overlay dimming. Syncs all monitors by default with relative offset preservation, or controls them individually based on mouse cursor position.
+- **MIDI Mode** -- Creates a virtual CoreMIDI source ("PowerMate Knob") visible to any DAW. Knob rotation sends CC messages; button press sends note on/off. Configurable CC number and channel from the menu bar.
+- **Custom Mode** -- Fully user-configurable per-application profiles. Assign any gesture to scroll, keyboard shortcuts, media keys, MIDI CC/Note, or OSC messages. See [Custom Mode](#custom-mode) below.
+
+### System
+- **Native Swift Driver** -- Pure IOKit HID implementation. No kernel extensions, no Rosetta.
+- **Menu Bar App** -- Lightweight status item with mode indicator, output device picker, sensitivity control, and LED configuration.
+- **Hardware LED Sync** -- LED ring brightness tracks the current level in real time.
+- **Multi-Display Brightness** -- All monitors dim together by default (with relative offsets preserved). Uncheck "Sync All Displays" to control each monitor independently based on mouse position.
+- **DDC/CI Hardware Brightness** -- Native I2C commands to external monitors for real backlight control, with instant gamma feedback for smooth knob feel.
+- **Night Mode** -- Deep overlay dimming to near-black for any display type.
+- **Native OSD** -- macOS-style volume/brightness overlay with SF Symbols and segmented level bar.
+- **Sparkle Auto-Updates** -- EdDSA-signed updates via GitHub Pages appcast.
+- **Launch at Login** -- One-click toggle via SMAppService.
+
+## Custom Mode
+
+Custom Mode lets you define what the PowerMate does on a per-application basis. Open **"Custom Mode Settings..."** from the menu bar to configure.
+
+### How It Works
+1. **Global Default** -- A base profile that applies when no app-specific profile matches.
+2. **Per-App Profiles** -- Add any running application. When that app is in the foreground, the PowerMate automatically switches to its gesture mappings.
+3. **Assignable Actions** -- Each gesture (Rotate Left, Rotate Right, Single Tap, Double Tap) can be assigned to:
+   - **Scroll** -- Emulate mouse scroll wheel (Up / Down / Left / Right)
+   - **Keyboard Shortcut** -- Any key combination (recorded live from the settings window)
+   - **Media Control** -- Play/Pause, Next Track, Previous Track
+   - **MIDI CC** -- Continuous controller with configurable CC number and channel
+   - **MIDI Note** -- Note on/off with configurable note number, velocity, and channel
+   - **OSC Message** -- Open Sound Control over UDP (configurable path, host, and port)
+
+### Long Press / Extended Press Override
+Each profile can optionally override the global "Cycle Mode" long press. When enabled:
+- **Long Press** -- Triggers a custom action once after the hold delay.
+- **Extended Press** -- Hold-to-sustain: the action fires when the hold threshold is met and stays active until the button is released (like holding a key on an organ). Works with Keyboard Shortcuts, MIDI Notes, and OSC.
+
+Enabling this override disables the ability to cycle between modes from the knob itself while that profile is active. A clear warning is shown in the settings UI.
 
 ## Hardware Requirements
 
 - **Device:** Griffin PowerMate USB
 - **Identifiers:** Vendor ID `0x077d`, Product ID `0x0410`
-- **OS:** macOS Sequoia+ (Optimized for Apple Silicon)
+- **OS:** macOS 13+ (Optimized for Apple Silicon, macOS Sequoia)
 
 ## Installation
 
-This app is currently distributed directly via GitHub Releases.
+1. Download the latest `.dmg` from [GitHub Releases](https://github.com/EricBintner/PowerMateReborn/releases).
+2. Open the `.dmg` and drag **PowerMateReborn** to your Applications folder.
+3. Launch the app. Grant **Accessibility** permissions if prompted (System Settings > Privacy & Security > Accessibility).
 
-1. Download the latest `.dmg` release from the [GitHub Releases](https://github.com/EricBintner/PowerMateReborn/releases) page.
-2. Open the `.dmg` file.
-3. Drag the `PowerMateReborn` app to your Applications folder.
-4. Launch the app from your Applications folder.
+*Since the app is not yet notarized by Apple, you may need to right-click and select "Open" the first time.*
 
-*Note: You may need to grant Accessibility permissions in System Settings > Privacy & Security > Accessibility for the app to function properly. Since the app is not currently notarized by Apple, you may need to right-click the app and select "Open" the first time you run it.*
+## Build from Source
 
-## Project Structure & Roadmap
+```bash
+cd PowerMateDriver
+swift build
+swift run
+```
 
-The project is organized into iterative phases (see the `Docs/` folder for deep-dive research):
-
-- **Phase 01:** Initial build and native HID connection setup.
-- **Phase 02:** Core app planning, advanced audio volume architecture, and multi-tier brightness research (DDC/CI, DisplayServices).
-- **Phase 03:** Custom control implementations and macro support.
-- **Phase 04:** Deployment, GitHub Releases, and future Mac App Store distribution plans.
+Requires Xcode 15+ and macOS 13+ SDK.
 
 ## Research & Documentation
 
-Extensive research has been done on modern macOS limitations and workarounds for hardware control:
-- [Audio Control Research](Docs/Phase02_app-planning/RESEARCH_AUDIO.md)
-- [Brightness Control Research](Docs/Phase02_app-planning/RESEARCH_BRIGHTNESS.md)
+Extensive research on modern macOS hardware control limitations and workarounds:
+- [Audio Control Research](docs/research/RESEARCH_AUDIO.md) -- 7-tier volume control strategy
+- [Brightness Control Research](docs/research/RESEARCH_BRIGHTNESS.md) -- 7-tier brightness strategy including DDC/CI deep dive
 
 ## License
 

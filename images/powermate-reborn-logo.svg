@@ -1,35 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 120" width="600" height="120">
-    <!-- Icon/Knob Graphic -->
-    <g transform="translate(60, 25)">
-        <g fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(2.5)">
-            <!-- Outer knurled ring implied by dashed stroke -->
-            <circle cx="12" cy="12" r="10" stroke-dasharray="2 2" stroke="#2563eb" />
-            <!-- Inner solid knob -->
-            <circle cx="12" cy="12" r="7" />
+    <!-- Logo Mark (Hybrid Sun/Volume) -->
+    <g transform="translate(60, 60)">
+        <g fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(3.5) translate(-12, -12)">
+            <!-- Inner Circle -->
+            <circle cx="12" cy="12" r="4" />
             
-            <!-- Engraved sun -->
-            <g stroke-width="1.2">
-                <circle cx="12" cy="12" r="2" />
-                <line x1="12" y1="7" x2="12" y2="8" />
-                <line x1="12" y1="16" x2="12" y2="17" />
-                <line x1="7" y1="12" x2="8" y2="12" />
-                <line x1="16" y1="12" x2="17" y2="12" />
-                <line x1="8.5" y1="8.5" x2="9.5" y2="9.5" />
-                <line x1="14.5" y1="14.5" x2="15.5" y2="15.5" />
-                <line x1="8.5" y1="15.5" x2="9.5" y2="14.5" />
-                <line x1="14.5" y1="9.5" x2="15.5" y2="8.5" />
-            </g>
+            <!-- Sun rays (left side) -->
+            <path d="M2 12h2" />
+            <path d="M4.93 4.93l1.41 1.41" />
+            <path d="M4.93 19.07l1.41-1.41" />
+            <path d="M12 20v2" />
+            <path d="M12 2v2" />
+            
+            <!-- Volume Arc (right side) - based directly on the provided code but keeping ONLY the larger arc, and scaling it down slightly -->
+            <path d="M18.8 6.2a8 8 0 0 1 0 11.6" />
         </g>
     </g>
     
     <!-- Text -->
     <!-- Designed for GitHub light/dark mode compatibility -->
-    <text x="140" y="65" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="42" font-weight="800" fill="#111827">
+    <text x="130" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="48" font-weight="800" fill="#111827">
         PowerMate<tspan fill="#3b82f6">Reborn</tspan>
     </text>
     
     <!-- Subtitle/Tagline -->
-    <text x="145" y="90" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="500" fill="#6b7280" letter-spacing="0.5">
+    <text x="131.75" y="95" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="500" fill="#6b7280" letter-spacing="0.44">
         Resurrecting the classic USB knob for modern macOS
     </text>
     

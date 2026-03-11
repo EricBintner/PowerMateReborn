@@ -30,34 +30,47 @@ class BrightnessController {
     // DDC/CI controller (shared, for external monitors)
     let ddcController = DDCController()
 
-    // Gamma fallback state (works for any display including external)
-    private var gammaLevel: Float = 1.0
-    private var originalGammaRed   = [CGGammaValue](repeating: 0, count: 256)
-    private var originalGammaGreen = [CGGammaValue](repeating: 0, count: 256)
-    private var originalGammaBlue  = [CGGammaValue](repeating: 0, count: 256)
-    private var gammaTableCaptured = false
+    // Per-display state
+    class DisplayState {
+        var method: BrightnessMethod = .none
+        var gammaLevel: Float = 1.0
+        var originalGammaRed   = [CGGammaValue](repeating: 0, count: 256)
+        var originalGammaGreen = [CGGammaValue](repeating: 0, count: 256)
+        var originalGammaBlue  = [CGGammaValue](repeating: 0, count: 256)
+        var gammaTableCaptured = false
+        var overlayWindow: NSWindow?
+        var overlayLevel: Float = 1.0
+    }
+    
+    private var states: [CGDirectDisplayID: DisplayState] = [:]
 
-    // Overlay dimming state
-    private var overlayWindows: [CGDirectDisplayID: NSWindow] = [:]
-    private var overlayLevel: Float = 1.0
+    // Sync state
+    var syncDisplays: Bool = true {
+        didSet { UserDefaults.standard.set(syncDisplays, forKey: "powermate.brightness.sync") }
+    }
 
     // Night mode state
     private(set) var nightModeActive: Bool = false
     private var brightnessBeforeNight: Float = 1.0
 
-    private(set) var method: BrightnessMethod = .none
-
     // Multi-display: track which display we're actively controlling
     private(set) var activeDisplayID: CGDirectDisplayID = CGMainDisplayID()
+    
+    var method: BrightnessMethod {
+        return states[activeDisplayID]?.method ?? .none
+    }
 
     // Per-display preferences: display serial -> last brightness level
     private var displayPreferences: [String: Float] = [:]
 
     init() {
+        if UserDefaults.standard.object(forKey: "powermate.brightness.sync") != nil {
+            syncDisplays = UserDefaults.standard.bool(forKey: "powermate.brightness.sync")
+        }
         loadDisplayServices()
         loadDisplayPreferences()
         activeDisplayID = displayUnderMouse()
-        detectMethod()
+        probeDisplays()
         installDisplayChangeListeners()
     }
 
@@ -76,8 +89,38 @@ class BrightnessController {
         }
     }
 
-    private func detectMethod() {
-        let displayID = activeDisplayID
+    private func probeDisplays() {
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(16, &displayIDs, &count)
+        
+        var newStates: [CGDirectDisplayID: DisplayState] = [:]
+        
+        for i in 0..<Int(count) {
+            let displayID = displayIDs[i]
+            if let existing = states[displayID] {
+                newStates[displayID] = existing
+            } else {
+                newStates[displayID] = detectMethod(for: displayID)
+                // Restore preference if exists
+                if let pref = loadDisplayPreference(for: displayID) {
+                    setBrightness(pref, for: displayID)
+                }
+            }
+        }
+        
+        // Cleanup old states
+        for (oldID, state) in states {
+            if newStates[oldID] == nil {
+                state.overlayWindow?.orderOut(nil)
+            }
+        }
+        
+        states = newStates
+    }
+
+    private func detectMethod(for displayID: CGDirectDisplayID) -> DisplayState {
+        let state = DisplayState()
 
         // Tier 1: DisplayServices (Apple/built-in displays)
         if let getter = dsGetBrightness, let setter = dsSetBrightness {
@@ -90,112 +133,131 @@ class BrightnessController {
                 setter(displayID, current)
 
                 if abs(readback - testVal) < 0.02 {
-                    method = .displayServices
-                    NSLog("Brightness: using DisplayServices (level=%.0f%%)", current * 100)
-                    return
-                } else {
-                    NSLog("Brightness: DisplayServices test failed — external display?")
+                    state.method = .displayServices
+                    NSLog("Brightness: display %d using DisplayServices", displayID)
+                    return state
                 }
             }
         }
 
         // Tier 2: DDC/CI (external monitors with hardware brightness)
         if ddcController.isEnabled && ddcController.supportsDDC(displayID: displayID) {
-            // Use hybrid mode: instant gamma feedback + queued DDC hardware change
-            captureOriginalGamma()
-            if gammaTableCaptured {
-                method = .ddcHybrid
-                NSLog("Brightness: using DDC+Gamma hybrid (display %d)", displayID)
+            captureOriginalGamma(for: displayID, into: state)
+            if state.gammaTableCaptured {
+                state.method = .ddcHybrid
+                NSLog("Brightness: display %d using DDC+Gamma hybrid", displayID)
             } else {
-                method = .ddcHardware
-                NSLog("Brightness: using DDC/CI hardware only (display %d)", displayID)
+                state.method = .ddcHardware
+                NSLog("Brightness: display %d using DDC/CI hardware only", displayID)
             }
-            return
+            return state
         }
 
         // Tier 3: Gamma table manipulation (any non-DisplayLink display)
-        captureOriginalGamma()
-        if gammaTableCaptured {
-            method = .gamma
-            NSLog("Brightness: using Gamma fallback (external display)")
-            return
+        captureOriginalGamma(for: displayID, into: state)
+        if state.gammaTableCaptured {
+            state.method = .gamma
+            NSLog("Brightness: display %d using Gamma fallback", displayID)
+            return state
         }
 
         // Tier 4: Overlay (truly universal — DisplayLink, AirPlay, etc.)
-        method = .overlay
-        NSLog("Brightness: using Overlay fallback (no gamma support)")
+        state.method = .overlay
+        NSLog("Brightness: display %d using Overlay fallback", displayID)
+        return state
     }
 
-    private func captureOriginalGamma() {
+    private func captureOriginalGamma(for displayID: CGDirectDisplayID, into state: DisplayState) {
         var sampleCount: UInt32 = 0
         let result = CGGetDisplayTransferByTable(
-            activeDisplayID, 256,
-            &originalGammaRed, &originalGammaGreen, &originalGammaBlue,
+            displayID, 256,
+            &state.originalGammaRed, &state.originalGammaGreen, &state.originalGammaBlue,
             &sampleCount)
-        gammaTableCaptured = (result == .success && sampleCount > 0)
-        if gammaTableCaptured {
-            NSLog("Brightness: captured gamma table (%d samples)", sampleCount)
-        }
+        state.gammaTableCaptured = (result == .success && sampleCount > 0)
     }
 
     // MARK: - Public API
 
     func getCurrentBrightness() -> Float {
-        switch method {
+        return getCurrentBrightness(for: activeDisplayID)
+    }
+
+    func getCurrentBrightness(for displayID: CGDirectDisplayID) -> Float {
+        guard let state = states[displayID] else { return 0.5 }
+        
+        switch state.method {
         case .displayServices:
-            return dsGetBrightness?(activeDisplayID) ?? 0.5
+            return dsGetBrightness?(displayID) ?? 0.5
         case .ddcHardware, .ddcHybrid:
-            if let ddc = ddcController.getBrightness(displayID: activeDisplayID) {
+            if let ddc = ddcController.getBrightness(displayID: displayID) {
                 return Float(ddc) / 100.0
             }
-            return gammaLevel  // fall back to gamma tracker
+            return state.gammaLevel
         case .gamma:
-            return gammaLevel
+            return state.gammaLevel
         case .overlay:
-            return overlayLevel
+            return state.overlayLevel
         case .none:
             return 0.5
         }
     }
 
     func setBrightness(_ brightness: Float) {
+        if syncDisplays {
+            let activeCurrent = getCurrentBrightness(for: activeDisplayID)
+            let actualDelta = brightness - activeCurrent
+            for displayID in states.keys {
+                let current = getCurrentBrightness(for: displayID)
+                setBrightness(current + actualDelta, for: displayID)
+            }
+        } else {
+            setBrightness(brightness, for: activeDisplayID)
+        }
+    }
+
+    func setBrightness(_ brightness: Float, for displayID: CGDirectDisplayID) {
+        guard let state = states[displayID] else { return }
         let clamped = max(0.0, min(1.0, brightness))
 
-        switch method {
+        switch state.method {
         case .displayServices:
-            dsSetBrightness?(activeDisplayID, clamped)
+            dsSetBrightness?(displayID, clamped)
 
         case .ddcHybrid:
-            // Instant gamma feedback for smooth knob feel
-            gammaLevel = clamped
-            applyGamma(clamped)
-            // Queued DDC hardware change (rate-limited, catches up in background)
+            state.gammaLevel = clamped
+            applyGamma(clamped, for: displayID, state: state)
             let ddcVal = UInt8(clamped * 100)
-            ddcController.setBrightness(ddcVal, displayID: activeDisplayID)
+            ddcController.setBrightness(ddcVal, displayID: displayID)
 
         case .ddcHardware:
             let ddcVal = UInt8(clamped * 100)
-            ddcController.setBrightness(ddcVal, displayID: activeDisplayID)
+            ddcController.setBrightness(ddcVal, displayID: displayID)
 
         case .gamma:
-            gammaLevel = clamped
-            applyGamma(clamped)
+            state.gammaLevel = clamped
+            applyGamma(clamped, for: displayID, state: state)
 
         case .overlay:
-            overlayLevel = clamped
-            applyOverlay(clamped)
+            state.overlayLevel = clamped
+            applyOverlay(clamped, for: displayID, state: state)
 
         case .none:
             break
         }
 
-        // Save per-display preference
-        saveDisplayPreference(level: clamped)
+        saveDisplayPreference(level: clamped, for: displayID)
     }
 
     func adjustBrightness(by delta: Float) {
-        let current = getCurrentBrightness()
-        setBrightness(current + delta)
+        if syncDisplays {
+            for displayID in states.keys {
+                let current = getCurrentBrightness(for: displayID)
+                setBrightness(current + delta, for: displayID)
+            }
+        } else {
+            let current = getCurrentBrightness(for: activeDisplayID)
+            setBrightness(current + delta, for: activeDisplayID)
+        }
     }
 
     var isAvailable: Bool {
@@ -214,45 +276,49 @@ class BrightnessController {
 
     // MARK: - Night Mode
 
-    /// Toggle night mode (deep dim to near-black). Works with any method.
+    /// Toggle night mode (deep dim to near-black).
     func toggleNightMode(dimLevel: Float = 0.05) {
         if nightModeActive {
-            // Restore
             nightModeActive = false
             setBrightness(brightnessBeforeNight)
-            removeOverlay(for: activeDisplayID)
+            // Clean up all overlays explicitly
+            for (id, state) in states {
+                removeOverlay(for: id, state: state)
+                // restore whatever state says
+                setBrightness(getCurrentBrightness(for: id), for: id)
+            }
             NSLog("Brightness: night mode OFF, restored to %.0f%%", brightnessBeforeNight * 100)
         } else {
-            // Activate: save current, dim to near-black using overlay
             brightnessBeforeNight = getCurrentBrightness()
             nightModeActive = true
-            // Apply overlay on top of whatever method is active
-            applyOverlay(dimLevel)
+            
+            // Apply overlay to all displays (regardless of sync)
+            for (id, state) in states {
+                applyOverlay(dimLevel, for: id, state: state)
+            }
             NSLog("Brightness: night mode ON (%.0f%%)", dimLevel * 100)
         }
     }
 
     // MARK: - DDC/CI Control
 
-    /// Re-probe DDC displays (call after display connect/disconnect)
+    /// Re-probe displays
     func reprobeDisplays() {
         ddcController.probeDisplays()
-        detectMethod()
+        probeDisplays()
     }
 
     // MARK: - Cleanup
 
     /// Restore original gamma on quit
     func restoreGamma() {
-        if (method == .gamma || method == .ddcHybrid) && gammaTableCaptured {
-            CGSetDisplayTransferByTable(activeDisplayID, 256,
-                                        originalGammaRed, originalGammaGreen, originalGammaBlue)
+        for (id, state) in states {
+            if (state.method == .gamma || state.method == .ddcHybrid) && state.gammaTableCaptured {
+                CGSetDisplayTransferByTable(id, 256,
+                                            state.originalGammaRed, state.originalGammaGreen, state.originalGammaBlue)
+            }
+            state.overlayWindow?.orderOut(nil)
         }
-        // Remove any overlay windows
-        for (_, window) in overlayWindows {
-            window.orderOut(nil)
-        }
-        overlayWindows.removeAll()
     }
 
     /// Update the target display to whichever screen the mouse cursor is on.
@@ -260,34 +326,20 @@ class BrightnessController {
         let newID = displayUnderMouse()
         guard newID != activeDisplayID else { return }
 
-        // Restore gamma on the old display before switching
-        if (method == .gamma || method == .ddcHybrid) && gammaTableCaptured && gammaLevel < 1.0 {
-            CGSetDisplayTransferByTable(activeDisplayID, 256,
-                                        originalGammaRed, originalGammaGreen, originalGammaBlue)
-        }
-
-        // Remove overlay from old display
-        removeOverlay(for: activeDisplayID)
-
+        // We no longer remove gamma/overlay on switch, since displays run concurrently now!
         activeDisplayID = newID
-        gammaLevel = 1.0
-        overlayLevel = 1.0
-        detectMethod()
-
-        // Restore saved preference for this display
-        if let saved = loadDisplayPreference() {
-            gammaLevel = saved
-            overlayLevel = saved
-        }
-
-        NSLog("Brightness: switched target to display %d (%@)", activeDisplayID, activeDisplayName)
+        NSLog("Brightness: focus switched to display %d (%@)", activeDisplayID, activeDisplayName)
     }
 
     /// The name of the active display (for UI)
     var activeDisplayName: String {
-        if CGDisplayIsBuiltin(activeDisplayID) != 0 { return "Built-in" }
-        let vendor = CGDisplayVendorNumber(activeDisplayID)
-        let model = CGDisplayModelNumber(activeDisplayID)
+        return displayName(for: activeDisplayID)
+    }
+    
+    private func displayName(for displayID: CGDirectDisplayID) -> String {
+        if CGDisplayIsBuiltin(displayID) != 0 { return "Built-in" }
+        let vendor = CGDisplayVendorNumber(displayID)
+        let model = CGDisplayModelNumber(displayID)
         switch vendor {
         case 0x1E6D: return "LG Display"
         case 0x10AC: return "Dell Display"
@@ -299,18 +351,18 @@ class BrightnessController {
 
     // MARK: - Per-Display Preferences
 
-    private func displaySerialKey() -> String {
-        return "\(CGDisplayVendorNumber(activeDisplayID))-\(CGDisplayModelNumber(activeDisplayID))-\(CGDisplaySerialNumber(activeDisplayID))"
+    private func displaySerialKey(for displayID: CGDirectDisplayID) -> String {
+        return "\(CGDisplayVendorNumber(displayID))-\(CGDisplayModelNumber(displayID))-\(CGDisplaySerialNumber(displayID))"
     }
 
-    private func saveDisplayPreference(level: Float) {
-        let key = displaySerialKey()
+    private func saveDisplayPreference(level: Float, for displayID: CGDirectDisplayID) {
+        let key = displaySerialKey(for: displayID)
         displayPreferences[key] = level
         UserDefaults.standard.set(displayPreferences, forKey: "powermate.brightness.displayPrefs")
     }
 
-    private func loadDisplayPreference() -> Float? {
-        let key = displaySerialKey()
+    private func loadDisplayPreference(for displayID: CGDirectDisplayID) -> Float? {
+        let key = displaySerialKey(for: displayID)
         return displayPreferences[key]
     }
 
@@ -328,7 +380,7 @@ class BrightnessController {
             let self_ = Unmanaged<BrightnessController>.fromOpaque(userInfo).takeUnretainedValue()
             if flags.contains(.beginConfigurationFlag) { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self_.onDisplayReconfigured(displayID)
+                self_.onDisplayReconfigured()
             }
         }, Unmanaged.passUnretained(self).toOpaque())
 
@@ -343,23 +395,20 @@ class BrightnessController {
         }
     }
 
-    private func onDisplayReconfigured(_ displayID: CGDirectDisplayID) {
-        // Re-probe DDC on display change
+    private func onDisplayReconfigured() {
         ddcController.probeDisplays()
-
-        if (method == .gamma || method == .ddcHybrid) && gammaLevel < 1.0 {
-            NSLog("Brightness: display reconfigured, re-applying gamma (level=%.0f%%)", gammaLevel * 100)
-            applyGamma(gammaLevel)
+        probeDisplays()
+        
+        // Re-apply gamma to all
+        for (id, state) in states {
+            if (state.method == .gamma || state.method == .ddcHybrid) && state.gammaLevel < 1.0 {
+                applyGamma(state.gammaLevel, for: id, state: state)
+            }
         }
     }
 
     private func onSystemWake() {
-        ddcController.probeDisplays()
-        captureOriginalGamma()
-        if (method == .gamma || method == .ddcHybrid) && gammaLevel < 1.0 {
-            NSLog("Brightness: system wake, re-applying gamma (level=%.0f%%)", gammaLevel * 100)
-            applyGamma(gammaLevel)
-        }
+        onDisplayReconfigured()
     }
 
     // MARK: - Gamma Implementation
@@ -376,8 +425,8 @@ class BrightnessController {
         return CGMainDisplayID()
     }
 
-    private func applyGamma(_ level: Float) {
-        guard gammaTableCaptured else { return }
+    private func applyGamma(_ level: Float, for displayID: CGDirectDisplayID, state: DisplayState) {
+        guard state.gammaTableCaptured else { return }
         let factor = max(0.01, level)
 
         var scaledRed   = [CGGammaValue](repeating: 0, count: 256)
@@ -385,33 +434,32 @@ class BrightnessController {
         var scaledBlue  = [CGGammaValue](repeating: 0, count: 256)
 
         for i in 0..<256 {
-            scaledRed[i]   = originalGammaRed[i]   * factor
-            scaledGreen[i] = originalGammaGreen[i] * factor
-            scaledBlue[i]  = originalGammaBlue[i]  * factor
+            scaledRed[i]   = state.originalGammaRed[i]   * factor
+            scaledGreen[i] = state.originalGammaGreen[i] * factor
+            scaledBlue[i]  = state.originalGammaBlue[i]  * factor
         }
 
-        CGSetDisplayTransferByTable(activeDisplayID, 256,
+        CGSetDisplayTransferByTable(displayID, 256,
                                     scaledRed, scaledGreen, scaledBlue)
     }
 
     // MARK: - Overlay Implementation
 
-    private func applyOverlay(_ level: Float) {
-        // level 1.0 = no overlay, 0.0 = fully black
+    private func applyOverlay(_ level: Float, for displayID: CGDirectDisplayID, state: DisplayState) {
         let opacity = max(0, min(1, 1.0 - level))
 
         if opacity < 0.001 {
-            removeOverlay(for: activeDisplayID)
+            removeOverlay(for: displayID, state: state)
             return
         }
 
-        let window = overlayWindow(for: activeDisplayID)
+        let window = overlayWindow(for: displayID, state: state)
         window.backgroundColor = NSColor.black.withAlphaComponent(CGFloat(opacity))
         window.orderFrontRegardless()
     }
 
-    private func overlayWindow(for displayID: CGDirectDisplayID) -> NSWindow {
-        if let existing = overlayWindows[displayID] { return existing }
+    private func overlayWindow(for displayID: CGDirectDisplayID, state: DisplayState) -> NSWindow {
+        if let existing = state.overlayWindow { return existing }
 
         let screen = NSScreen.screens.first { $0.displayID == displayID } ?? NSScreen.main!
         let window = NSWindow(
@@ -427,15 +475,15 @@ class BrightnessController {
         window.hasShadow = false
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         window.isReleasedWhenClosed = false
-        window.sharingType = .none  // exclude from screenshots/screen recording
+        window.sharingType = .none
 
-        overlayWindows[displayID] = window
+        state.overlayWindow = window
         return window
     }
 
-    private func removeOverlay(for displayID: CGDirectDisplayID) {
-        overlayWindows[displayID]?.orderOut(nil)
-        overlayWindows.removeValue(forKey: displayID)
+    private func removeOverlay(for displayID: CGDirectDisplayID, state: DisplayState) {
+        state.overlayWindow?.orderOut(nil)
+        state.overlayWindow = nil
     }
 }
 

@@ -3,6 +3,7 @@ import CoreAudio
 import Foundation
 import ServiceManagement
 import Sparkle
+import SwiftUI
 
 // MARK: - Knob Modes
 
@@ -37,6 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var volumeController = VolumeController()
     private var brightnessController = BrightnessController()
     private var midiController = MIDIController()
+    private let customEngine = CustomModeEngine.shared
     private var updaterController: SPUStandardUpdaterController!
     private let osd = OSDOverlay()
 
@@ -57,6 +59,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var volumeSnapValue: Float = 0.20      // 20%
     private var brightnessSnapValue: Float = 0.15  // 15% (night mode)
 
+    // UI Window Controllers
+    private var customSettingsWindowController: NSWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Only initialize Sparkle if running inside a proper .app bundle (prevents errors during `swift run`)
         if Bundle.main.bundleURL.pathExtension == "app" {
@@ -73,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     func applicationWillTerminate(_ notification: Notification) {
         brightnessController.restoreGamma()
+        customEngine.shutdown()
         powerMate.setLEDBrightness(0)
         powerMate.stop()
         saveSettings()
@@ -179,11 +185,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         let br = brightnessController.getCurrentBrightness()
         let brMethod = brightnessController.method
-        let brSuffix = brMethod == .gamma ? "  [Software]" : ""
-        let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%\(brSuffix)", action: nil, keyEquivalent: "")
+        let brSuffix = brMethod.isSoftware ? "  [Software]" : ""
+        let displayName = brightnessController.activeDisplayName
+        let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%\(brSuffix) — \(displayName)", action: nil, keyEquivalent: "")
         brLabel.tag = 101
         // Use warning icon when using software/gamma dimming
-        let brIcon = brMethod == .gamma ? "sun.max.trianglebadge.exclamationmark" : "sun.max.fill"
+        let brIcon = brMethod.isSoftware ? "sun.max.trianglebadge.exclamationmark" : "sun.max.fill"
         if let img = NSImage(systemSymbolName: brIcon, accessibilityDescription: nil) ??
            NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
             brLabel.image = img
@@ -191,7 +198,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(brLabel)
 
         // Brightness warning when using software dimming
-        if brMethod == .gamma {
+        if brMethod.isSoftware {
             let warnItem = NSMenuItem(title: "Using software dimming (backlight unchanged)", action: nil, keyEquivalent: "")
             warnItem.indentationLevel = 2
             if let img = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil) {
@@ -213,12 +220,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let deviceMenu = NSMenu()
         deviceMenu.autoenablesItems = false
         let defaultID = volumeController.activeDeviceID
+        var activeDeviceName = "Default"
         for dev in volumeController.allOutputDevices {
             let isActive = dev.deviceID == defaultID
             // Clean up name: remove common suffixes for a cleaner native look
             var cleanName = dev.name
             if cleanName.hasSuffix(" Speakers") { cleanName = cleanName.replacingOccurrences(of: " Speakers", with: "") }
             
+            if isActive { activeDeviceName = cleanName }
+
             let item = NSMenuItem(
                 title: cleanName,
                 action: #selector(switchAudioDevice(_:)),
@@ -236,7 +246,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             
             deviceMenu.addItem(item)
         }
-        let deviceItem = NSMenuItem(title: "Output Device", action: nil, keyEquivalent: "")
+        let deviceItem = NSMenuItem(title: "Output Device: \(activeDeviceName)", action: nil, keyEquivalent: "")
         deviceItem.submenu = deviceMenu
         if let img = NSImage(systemSymbolName: "headphones", accessibilityDescription: nil) {
             deviceItem.image = img
@@ -263,14 +273,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Sensitivity Config
         let sensitivityMenu = NSMenu()
         sensitivityMenu.autoenablesItems = false
+        var activeSensitivityName = "Medium"
         for (label, value) in [("Low (1%)", Float(0.01)), ("Medium (3%)", Float(0.03)), ("High (5%)", Float(0.05)), ("Very High (8%)", Float(0.08))] {
             let item = NSMenuItem(title: label, action: #selector(sensitivityChanged(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = value
-            if abs(stepSize - value) < 0.001 { item.state = .on }
+            if abs(stepSize - value) < 0.001 { 
+                item.state = .on 
+                activeSensitivityName = label.components(separatedBy: " ").first ?? label
+            }
             sensitivityMenu.addItem(item)
         }
-        let sensitivityItem = NSMenuItem(title: "Sensitivity", action: nil, keyEquivalent: "")
+        let sensitivityItem = NSMenuItem(title: "Sensitivity: \(activeSensitivityName)", action: nil, keyEquivalent: "")
         sensitivityItem.submenu = sensitivityMenu
         if let img = NSImage(systemSymbolName: "dial.min", accessibilityDescription: nil) {
             sensitivityItem.image = img
@@ -292,7 +306,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             ledMenu.addItem(item)
         }
 
-        let ledItem = NSMenuItem(title: "LED Effect", action: nil, keyEquivalent: "")
+        let ledStateText = ledFollowsLevel ? "Follow Level" : "Static/Effect"
+        let ledItem = NSMenuItem(title: "LED Effect: \(ledStateText)", action: nil, keyEquivalent: "")
         ledItem.submenu = ledMenu
         if let img = NSImage(systemSymbolName: "lightbulb", accessibilityDescription: nil) {
             ledItem.image = img
@@ -329,22 +344,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             midiMenu.addItem(item)
         }
 
-        let midiItem = NSMenuItem(title: "MIDI Settings", action: nil, keyEquivalent: "")
+        let midiItem = NSMenuItem(title: "MIDI: CC \(midiController.ccNumber) / Ch \(midiController.channel + 1)", action: nil, keyEquivalent: "")
         midiItem.submenu = midiMenu
         if let img = NSImage(systemSymbolName: "pianokeys", accessibilityDescription: nil) {
             midiItem.image = img
         }
         menu.addItem(midiItem)
 
-        // DDC/CI toggle
+        // Hardware Brightness (DDC/CI) toggle
         let ddcEnabled = brightnessController.ddcController.isEnabled
-        let ddcItem = NSMenuItem(title: "DDC/CI Monitor Control", action: #selector(toggleDDC(_:)), keyEquivalent: "")
+        let ddcItem = NSMenuItem(title: "Hardware Brightness (DDC/CI)", action: #selector(toggleDDC(_:)), keyEquivalent: "")
         ddcItem.target = self
         ddcItem.state = ddcEnabled ? .on : .off
         if let img = NSImage(systemSymbolName: "display", accessibilityDescription: nil) {
             ddcItem.image = img
         }
         menu.addItem(ddcItem)
+
+        // Sync Brightness toggle
+        let syncEnabled = brightnessController.syncDisplays
+        let syncItem = NSMenuItem(title: "Sync All Displays", action: #selector(toggleBrightnessSync(_:)), keyEquivalent: "")
+        syncItem.target = self
+        syncItem.state = syncEnabled ? .on : .off
+        if let img = NSImage(systemSymbolName: "display.2", accessibilityDescription: nil) {
+            syncItem.image = img
+        }
+        menu.addItem(syncItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -356,6 +381,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             loginItem.image = img
         }
         menu.addItem(loginItem)
+
+        // Custom Mode Settings
+        let customSettingsItem = NSMenuItem(title: "Custom Mode Settings...", action: #selector(showCustomSettings), keyEquivalent: "")
+        customSettingsItem.target = self
+        if let img = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil) {
+            customSettingsItem.image = img
+        }
+        menu.addItem(customSettingsItem)
 
         // Add update check menu item
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -515,6 +548,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         refreshMenu()
     }
 
+    @objc private func toggleBrightnessSync(_ sender: NSMenuItem) {
+        brightnessController.syncDisplays.toggle()
+        NSLog("Brightness: Sync %@", brightnessController.syncDisplays ? "ON" : "OFF")
+        refreshMenu()
+    }
+
     @objc private func ledFollowLevel(_ sender: NSMenuItem) {
         ledFollowsLevel.toggle()
         if ledFollowsLevel { updateLEDForLevel() }
@@ -614,6 +653,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         brightnessLabel.alignment = .center
         container.addArrangedSubview(brightnessLabel)
 
+        // Tip about multi-display
+        let tipLabel = NSTextField(labelWithString: "Tip: By default, the knob dims all displays together. You can uncheck 'Sync All Displays' in the menu to control each monitor individually based on mouse location.")
+        tipLabel.font = NSFont.systemFont(ofSize: 11)
+        tipLabel.textColor = .secondaryLabelColor
+        tipLabel.lineBreakMode = .byWordWrapping
+        tipLabel.maximumNumberOfLines = 0
+        tipLabel.preferredMaxLayoutWidth = 300
+        container.addArrangedSubview(tipLabel)
+
         // Spacer
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
@@ -669,6 +717,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if let url = URL(string: "https://github.com/EricBintner/PowerMateReborn/issues/new") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc private func showCustomSettings() {
+        if customSettingsWindowController == nil {
+            let settingsView = CustomModeSettingsView()
+            let hostingController = NSHostingController(rootView: settingsView)
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "Custom Mode Settings"
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.setContentSize(NSSize(width: 750, height: 500))
+            
+            let controller = NSWindowController(window: window)
+            customSettingsWindowController = controller
+        }
+        
+        customSettingsWindowController?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func showQuickStart() {
@@ -875,7 +940,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .midi:
             midiController.adjustCC(by: adjustment)
         case .custom:
-            break
+            customEngine.handleRotation(delta: delta, stepSize: stepSize)
         }
         updateLEDForLevel()
         updateMenuLevels()
@@ -913,7 +978,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .midi:
             midiController.toggleNote()
         case .custom:
-            break
+            customEngine.handleSingleTap()
         }
         updateLEDForLevel()
         refreshMenu()
@@ -930,15 +995,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .midi:
             midiController.toggleNote()
         case .custom:
-            break
+            customEngine.handleDoubleTap()
         }
         updateLEDForLevel()
         refreshMenu()
     }
 
     func powerMateButtonLongPressed() {
+        // In Custom mode, the engine may override the long press
+        if currentMode == .custom && customEngine.handleLongPress() {
+            NSLog("Button: long press consumed by Custom profile")
+            return
+        }
         NSLog("Button: long press -> cycle mode")
         cycleMode()
+    }
+
+    func powerMateButtonReleased() {
+        // Forward raw release to the custom engine for extended press support
+        if currentMode == .custom {
+            customEngine.handleButtonReleased()
+        }
     }
 
     // MARK: - VolumeChangeDelegate

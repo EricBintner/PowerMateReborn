@@ -13,6 +13,7 @@ protocol PowerMateDelegate: AnyObject {
     func powerMateButtonPressed()       // single press
     func powerMateButtonDoubleTapped()  // two presses within doubleTapInterval
     func powerMateButtonLongPressed()   // hold >= longPressThreshold
+    func powerMateButtonReleased()      // raw button-up (for extended press / sustain)
 }
 
 class PowerMateHID {
@@ -204,6 +205,9 @@ class PowerMateHID {
     private func onButtonUp() {
         longPressTimer?.invalidate()
         longPressTimer = nil
+
+        // Always notify raw release (for extended press / sustain actions)
+        delegate?.powerMateButtonReleased()
 
         guard !longPressFired else {
             buttonDownTime = nil

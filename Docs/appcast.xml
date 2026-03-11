@@ -6,31 +6,74 @@
     <description>Updates for PowerMateReborn</description>
     <language>en</language>
 
-    <!-- TEMPLATE: Copy this <item> block for each release, newest first -->
     <item>
-      <title>Version 1.0.0</title>
+      <title>PowerMateReborn 2.0.0</title>
       <description><![CDATA[
-        <h2>PowerMateReborn 1.0.0</h2>
+        <h2>PowerMateReborn 2.0.0 -- Initial Release</h2>
+        <p>A native macOS driver for the Griffin PowerMate USB, built from scratch for Apple Silicon and macOS Sequoia.</p>
+
+        <h3>Volume Control</h3>
         <ul>
-          <li>Initial release</li>
-          <li>Volume control with CoreAudio</li>
-          <li>Brightness control with DisplayServices</li>
-          <li>Multi-mode support (Volume/Brightness/Custom)</li>
-          <li>LED feedback syncs with level</li>
-          <li>Launch at Login support</li>
+          <li>Multi-tier CoreAudio engine (Master, Channel, VirtualMaster, AppleScript, Software fallback)</li>
+          <li>Per-device audio routing memory -- remembers your preferred output device</li>
+          <li>Output device picker in the menu bar</li>
+          <li>Mute toggle, external volume change listener, L/R balance preservation</li>
+        </ul>
+
+        <h3>Brightness Control</h3>
+        <ul>
+          <li>DisplayServices private API for built-in Apple displays</li>
+          <li>DDC/CI hardware brightness for external monitors via native IOKit I2C</li>
+          <li>Hybrid DDC+Gamma mode for instant feedback with queued hardware changes</li>
+          <li>Gamma table and overlay dimming fallbacks for all other displays</li>
+          <li>Sync All Displays (default ON) -- all monitors dim together with relative offsets preserved</li>
+          <li>Night mode -- deep overlay dim to near-black for any display type</li>
+          <li>Per-display brightness preferences saved and restored automatically</li>
+        </ul>
+
+        <h3>MIDI Mode</h3>
+        <ul>
+          <li>Virtual CoreMIDI source ("PowerMate Knob") visible to any DAW</li>
+          <li>Knob rotation sends CC messages; button press sends note on/off</li>
+          <li>Configurable CC number (Mod Wheel, Volume, Expression, Filter) and channel (1-16)</li>
+        </ul>
+
+        <h3>Custom Mode</h3>
+        <ul>
+          <li>Per-application profiles -- the PowerMate adapts to whichever app is in the foreground</li>
+          <li>Global default profile for apps without a specific mapping</li>
+          <li>6 action types: Scroll, Keyboard Shortcut, Media Control, MIDI CC, MIDI Note, OSC Message</li>
+          <li>Live keyboard shortcut recording from the settings window</li>
+          <li>Long Press override -- assign a custom action instead of mode cycling</li>
+          <li>Extended Press (hold-to-sustain) -- like an organ key, active while held, released on button up</li>
+          <li>OSC output over UDP with configurable path, host, and port</li>
+        </ul>
+
+        <h3>System</h3>
+        <ul>
+          <li>Pure IOKit HID driver -- no kernel extensions, no Rosetta</li>
+          <li>Lightweight menu bar app with mode-specific icons</li>
+          <li>Native macOS OSD overlay for volume and brightness</li>
+          <li>LED ring brightness follows current level in real time</li>
+          <li>Configurable sensitivity, LED effects (follow/static/pulse)</li>
+          <li>Launch at Login via SMAppService</li>
+          <li>Sparkle auto-updates with EdDSA signing</li>
+          <li>About window with device diagnostics</li>
         </ul>
       ]]></description>
       <pubDate>REPLACE_WITH_RFC2822_DATE</pubDate>
       <sparkle:version>202503110000</sparkle:version>
-      <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+      <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.0.0/PowerMateReborn_v1.0.0.dmg"
+        url="https://github.com/EricBintner/PowerMateReborn/releases/download/v2.0.0/PowerMateReborn_v2.0.0.dmg"
         length="REPLACE_WITH_FILE_SIZE_BYTES"
         type="application/octet-stream"
         sparkle:edSignature="REPLACE_WITH_EDDSA_SIGNATURE"
       />
     </item>
+
+    <!-- TEMPLATE: For future releases, copy the <item> block above and place it BEFORE this comment. Newest first. -->
 
   </channel>
 </rss>

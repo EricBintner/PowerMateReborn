@@ -67,11 +67,17 @@
 - [x] **Night mode** — `toggleNightMode()` API: saves current brightness, applies deep overlay dim (5%), toggles on/off.
 - [x] **Per-display preferences** — Brightness level per display (by vendor-model-serial key) saved to UserDefaults. Restored on display switch.
 
-## v2.0 — Custom Mode (Phase 03)
+## v2.0 — Custom Mode (Phase 03) — Complete
 
-- [ ] **User-configurable actions per app** — Frontmost app detection, per-app knob bindings.
-- [ ] **Scroll wheel emulation** — Knob rotation sends scroll events.
-- [ ] **MIDI/OSC advanced** — Per-app MIDI profiles, OSC output, advanced routing.
+- [x] **App-Based Routing** — `CustomModeEngine` observes frontmost app via `NSWorkspace`, matches per-app profiles, falls back to Global Default.
+- [x] **Custom Settings UI** — SwiftUI `NavigationSplitView` window with sidebar profiles, action config rows, add/remove apps from running apps list.
+- [x] **Advanced Assignable Actions** — Scroll (CGEvent), Keyboard Shortcuts (CGEvent + live recording), Media Keys (NX system events), MIDI CC/Note (CoreMIDI), OSC Messages (UDP via Network.framework).
+- [x] **Long Press / Extended Press Override** — Per-profile toggle disables global mode cycling. Two behaviors:
+  - **Long Press:** Fire-once action after hold delay.
+  - **Extended Press:** Hold-to-sustain (key down on hold, key up on release). Works with Keyboard, MIDI Note, and OSC.
+- [x] **OSC Controller** — Lightweight `OSCController` with proper OSC message encoding (null-terminated 4-byte aligned strings, big-endian floats/ints) over UDP via `NWConnection`.
+- [x] **Button Release HID Event** — Added `powerMateButtonReleased()` to delegate protocol for sustain/extended press support.
+- [x] **Codable Persistence** — All profiles saved/loaded via JSON to `UserDefaults`.
 
 ## Deployment
 

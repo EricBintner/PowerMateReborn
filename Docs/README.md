@@ -9,29 +9,25 @@ PowerMateDriver/
 ├── docs/
 │   ├── README.md                          ← you are here
 │   ├── appcast.xml                        Sparkle update feed (GitHub Pages)
-│   ├── Phase01_initial-build/
-│   │   └── README.md                      Architecture, build instructions, known issues
-│   ├── Phase02_app-planning/
-│   │   ├── README.md                      Feature roadmap v1.0 → v2.0
-│   │   ├── DESIGN_PLAN.md                 Interaction model, architecture, phases
-│   │   ├── GESTURES.md                    Button gesture system
-│   │   ├── RESEARCH_AUDIO.md              Audio volume control strategies (7 tiers)
-│   │   └── RESEARCH_BRIGHTNESS.md         Brightness control strategies (7 tiers)
-│   ├── Phase03_custom-control/
-│   │   └── README.md                      Custom mode + MIDI research
-│   └── Phase04_deployment--app-store/
-│       └── README.md                      Distribution strategy
+│   └── research/
+│       ├── RESEARCH_AUDIO.md              Audio volume control strategies (7 tiers)
+│       └── RESEARCH_BRIGHTNESS.md         Brightness control strategies (7 tiers)
 ├── scripts/
 │   ├── build-dmg.sh                       Automated .dmg packaging
 │   ├── appcast-template.xml               Sparkle appcast template
+│   ├── CODE_SIGNING.md                    Code signing + notarization guide
 │   └── SPARKLE_SETUP.md                   Sparkle EdDSA + GitHub Pages guide
 └── Sources/
-    ├── main.swift
+    ├── main.swift                         App entry point
     ├── AppDelegate.swift                  Menu bar app, mode routing, gestures
-    ├── PowerMateHID.swift                 IOKit HID driver, gesture detection
+    ├── PowerMateHID.swift                 IOKit HID driver, gesture + release detection
     ├── VolumeController.swift             Multi-tier audio volume engine
-    ├── BrightnessController.swift         DisplayServices + gamma + multi-display
+    ├── BrightnessController.swift         Multi-display brightness (DDC/CI, gamma, overlay, sync)
+    ├── DDCController.swift                Native IOKit DDC/CI for external monitors
     ├── MIDIController.swift               CoreMIDI virtual source, CC + notes
+    ├── OSCController.swift                Open Sound Control UDP sender
+    ├── CustomModeEngine.swift             Per-app profiles, action execution, extended press
+    ├── CustomModeSettingsView.swift        SwiftUI settings window for Custom mode
     ├── OSDOverlay.swift                   Native volume/brightness HUD overlay
     └── MenuBarIcon.swift                  Custom mode-specific menu bar icons
 ```
@@ -45,24 +41,31 @@ swift run
 
 ## Gesture Map
 
-| Gesture | Volume | Brightness | MIDI |
-|---------|--------|------------|------|
-| **Rotate** | Adjust volume | Adjust brightness | Send MIDI CC |
-| **Tap** | Snap to 20% (toggle) | Snap to 15% (toggle) | Toggle note |
-| **Double-tap** | Mute / unmute | Sleep display | Toggle note |
-| **Long press** | Cycle mode | Cycle mode | Cycle mode |
+| Gesture | Volume | Brightness | MIDI | Custom |
+|---------|--------|------------|------|--------|
+| **Rotate** | Adjust volume | Adjust brightness | Send MIDI CC | Per-profile action |
+| **Tap** | Snap to 20% (toggle) | Snap to 15% (toggle) | Toggle note | Per-profile action |
+| **Double-tap** | Mute / unmute | Sleep display | Toggle note | Per-profile action |
+| **Long press** | Cycle mode | Cycle mode | Cycle mode | Per-profile action* |
+
+*\*Custom profiles can override long press with a custom action or extended press (hold-to-sustain), which disables mode cycling from the knob while active.*
 
 ## Current Status
-- **Phase 1 (Core Build):** Complete — HID, volume, brightness, MIDI, OSD, gestures, settings
-- **Phase 2 (App Planning):** Complete — research docs, design plan, architecture
-- **Phase 3 (Custom Control):** MIDI basic mode done, custom/OSC in v2.0
-- **Phase 4 (Deployment):** Sparkle integrated, .dmg script ready, awaiting code signing
+- **v1.0 (Core Build):** Complete -- HID, volume, brightness, MIDI, OSD, gestures, settings, LED
+- **v1.1 (Polish):** Complete -- per-device audio routing memory, brightness warning, MIDI settings UI
+- **v1.2 (DDC/CI):** Complete -- native hardware brightness for external monitors, hybrid gamma+DDC, rate limiting
+- **v1.3 (Extended Brightness):** Complete -- overlay dimming, night mode, per-display preferences, multi-display sync
+- **v2.0 (Custom Mode):** Complete -- per-app profiles, scroll/keyboard/media/MIDI/OSC actions, long press override, extended press (hold-to-sustain), settings window, OSC controller, Codable persistence
+- **Deployment:** Sparkle integrated, .dmg script ready, awaiting code signing + notarization
 
 ## Key Design Decisions
-1. **No kernel extension** — pure userspace IOKit HID, works on macOS 13+
-2. **Four modes** — Volume / Brightness / MIDI / Custom, long-press to cycle
-3. **Three gestures** — tap (snap), double-tap (mute/sleep), long-press (cycle)
-4. **Adaptive audio** — CoreAudio Master > Channel > VirtualMaster > AppleScript > Software fallback
-5. **Multi-display brightness** — targets display under mouse cursor, gamma fallback for externals
-6. **MIDI virtual source** — CoreMIDI, appears in any DAW as "PowerMate Knob"
-7. **LED follows level** — brightness tracks current mode's value in real time
+1. **No kernel extension** -- pure userspace IOKit HID, works on macOS 13+
+2. **Four modes** -- Volume / Brightness / MIDI / Custom, long-press to cycle
+3. **Three gestures + release** -- tap (snap), double-tap (mute/sleep), long-press (cycle), button-release (extended press sustain)
+4. **Adaptive audio** -- CoreAudio Master > Channel > VirtualMaster > AppleScript > Software fallback
+5. **Multi-display brightness** -- syncs all monitors by default (relative offsets preserved), or individual control by mouse cursor
+6. **DDC/CI + gamma hybrid** -- instant gamma feedback for smooth knob feel, queued DDC hardware changes in background
+7. **MIDI virtual source** -- CoreMIDI, appears in any DAW as "PowerMate Knob"
+8. **Custom mode engine** -- NSWorkspace frontmost app observer, per-app Codable profiles, 6 action types, extended press sustain
+9. **OSC over UDP** -- Network.framework NWConnection, proper OSC message encoding
+10. **LED follows level** -- brightness tracks current mode's value in real time
