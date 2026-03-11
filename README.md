@@ -1,4 +1,6 @@
-# PowerMateReborn
+<div align="center">
+  <img src="images/powermate-reborn-logo.svg" alt="PowerMateReborn Logo" width="600">
+</div>
 
 ![Griffin PowerMate on macOS Sequoia](images/griffin-technology-powermate-mac-os9.png)
 
@@ -23,7 +25,7 @@ Transform your Griffin PowerMate into a dedicated media control knob for your Ma
 - **Native Swift Driver:** Pure IOKit HID implementation. No legacy kernel extensions or Rosetta required.
 - **Menu Bar App:** Lightweight and unobtrusive mode switching.
 - **Volume Mode:** Controls all macOS audio devices via CoreAudio with intelligent fallback methods.
-- **Brightness Mode:** Adjusts built-in Apple displays and external monitors (gamma fallback, DDC/CI planned).
+- **Brightness Mode:** Adjusts built-in and external displays (DDC/CI, gamma, and overlay). Syncs all monitors by default, or controls them individually based on mouse cursor position.
 - **MIDI Mode:** Send MIDI CC messages to any DAW or MIDI-capable app. Knob = CC value, press = note.
 - **Hardware Sync:** LED ring brightness tracks the current level in real time.
 
