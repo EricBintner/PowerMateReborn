@@ -4,7 +4,7 @@
 
 ![Griffin PowerMate on macOS Sequoia](images/griffin-technology-powermate-mac-os9.png)
 
-A project to resurrect the classic Griffin PowerMate USB for modern Mac setups (Apple Silicon and macOS Sequoia+). 
+Resurrecting the classic Griffin PowerMate USB for modern Mac setups (Apple Silicon and macOS Sequoia+). 
 
 Since the official drivers haven't worked in years, this is a native Swift menu bar app built from scratch to bring that awesome piece of hardware back to life.
 
