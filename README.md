@@ -10,16 +10,20 @@ Since the official drivers haven't worked in years, this is a native Swift menu 
 
 Transform your Griffin PowerMate into a dedicated media control knob for your Mac. Rotate for precise volume and brightness adjustments, press for mute or mode switching, and enjoy smooth LED feedback that matches your system's state.
 
+## Quick Start
+
+- **Rotate:** Adjust system volume or display brightness.
+- **Click:** Toggle mute (Volume Mode) or step brightness (Brightness Mode).
+- **Long Press:** Switch between Volume and Brightness modes.
+- **LED Ring:** Intensity reflects the current level; pulses when muted.
+
 ## Features
 
-- **Native Swift IOKit HID Integration:** Directly reads USB events without relying on legacy drivers or Rosetta.
-- **Lightweight Menu Bar App:** Unobtrusive control and mode switching directly from your macOS menu bar.
-- **Multi-Mode Support:**
-  - 🔊 **Volume Mode:** Smooth rotational volume control with instant mute via button press. Works with all macOS audio devices through intelligent fallback strategies.
-  - ☀️ **Brightness Mode:** Precise display brightness adjustment via knob rotation, with button press for keyboard brightness keys. Supports external monitors via planned DDC/CI.
-  - ⚙️ **Custom Mode:** (In Development) Programmable actions and macros for future customization.
-- **Gesture Recognition:** Supports single press (mute/action), long press (mode cycling), and rotational inputs (with double-tap planned).
-- **LED Feedback:** Visual feedback through the PowerMate's LED ring, reflecting current volume or brightness levels.
+- **Native Swift Driver:** Pure IOKit HID implementation. No legacy kernel extensions or Rosetta required.
+- **Menu Bar App:** Lightweight and unobtrusive mode switching.
+- **Volume Mode:** Controls all macOS audio devices via CoreAudio with intelligent fallback methods.
+- **Brightness Mode:** Adjusts built-in Apple displays (DDC/CI planned for external monitors).
+- **Hardware Sync:** Dynamic visual feedback synchronizing the built-in blue LED with your system state.
 
 ## Hardware Requirements
 
@@ -55,4 +59,4 @@ Extensive research has been done on modern macOS limitations and workarounds for
 
 ## License
 
-[Add License Information Here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
