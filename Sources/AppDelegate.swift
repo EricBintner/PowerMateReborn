@@ -336,6 +336,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         menu.addItem(midiItem)
 
+        // DDC/CI toggle
+        let ddcEnabled = brightnessController.ddcController.isEnabled
+        let ddcItem = NSMenuItem(title: "DDC/CI Monitor Control", action: #selector(toggleDDC(_:)), keyEquivalent: "")
+        ddcItem.target = self
+        ddcItem.state = ddcEnabled ? .on : .off
+        if let img = NSImage(systemSymbolName: "display", accessibilityDescription: nil) {
+            ddcItem.image = img
+        }
+        menu.addItem(ddcItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Launch at Login toggle
@@ -491,6 +501,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     @objc private func midiChannelChanged(_ sender: NSMenuItem) {
         midiController.channel = UInt8(sender.tag - 1)  // menu shows 1-based, MIDI is 0-based
         NSLog("MIDI: channel changed to %d", sender.tag)
+        refreshMenu()
+    }
+
+    @objc private func toggleDDC(_ sender: NSMenuItem) {
+        brightnessController.ddcController.isEnabled.toggle()
+        let enabled = brightnessController.ddcController.isEnabled
+        NSLog("DDC/CI: %@", enabled ? "enabled" : "disabled")
+        if enabled {
+            brightnessController.reprobeDisplays()
+        }
+        UserDefaults.standard.set(enabled, forKey: "powermate.ddc.enabled")
         refreshMenu()
     }
 
@@ -983,9 +1004,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if d.object(forKey: "powermate.midi.channel") != nil {
             midiController.channel = UInt8(d.integer(forKey: "powermate.midi.channel"))
         }
+        // DDC/CI enabled
+        if d.object(forKey: "powermate.ddc.enabled") != nil {
+            brightnessController.ddcController.isEnabled = d.bool(forKey: "powermate.ddc.enabled")
+        }
         // Sync launch-at-login with actual SMAppService status
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
-        NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d midi=CC%d/ch%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin, midiController.ccNumber, midiController.channel + 1)
+        NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d ddc=%d midi=CC%d/ch%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin, brightnessController.ddcController.isEnabled, midiController.ccNumber, midiController.channel + 1)
     }
 
     private func saveSettings() {

@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import IOKit
 
 /// DDC/CI controller for external monitors on Apple Silicon.

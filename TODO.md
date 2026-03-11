@@ -51,21 +51,21 @@
 - [x] **Per-device audio routing memory** — Saves "when default is X, control Y" in UserDefaults. Auto-applies on device change.
 - [x] **Brightness warning indicator** — Shows "[Software]" suffix + warning triangle + explanation when gamma dimming is active.
 - [x] **MIDI settings UI** — Submenu with CC number picker (Mod Wheel/Volume/Expression/Filter) and channel picker (1/2/10/16). Persisted.
-- [ ] **DDC/CI toggle in UI** — Checkbox in settings to enable/disable DDC/CI. (Deferred to v1.2 when DDC is implemented.)
 
-## v1.2 — DDC/CI Hardware Control (requires testing with LG monitor)
+## v1.2 DDC/CI Hardware Control — Complete
 
-- [ ] **DDC/CI brightness** — Integrate AppleSiliconDDC library for real backlight control on external monitors (VCP 0x10).
-- [ ] **DDC/CI volume** — Control monitor speaker volume via DDC (VCP 0x62) for HDMI/DP monitors.
-- [ ] **DDC/CI rate limiter** — Queue + coalesce DDC commands (max 10/sec, monitors crash if flooded).
-- [ ] **Hybrid brightness** — Instant gamma feedback + queued DDC hardware change for smooth knob feel.
-- [ ] **DDC/CI display probing** — Auto-detect which monitors support DDC at startup, cache results.
+- [x] **DDC/CI brightness** — Native IOKit IOAVService I2C implementation for external monitors (VCP 0x10).
+- [x] **DDC/CI volume** — Monitor speaker volume via DDC (VCP 0x62) available through DDCController.
+- [x] **DDC/CI rate limiter** — Queue + coalesce per-display (100ms min interval, background dispatch queue).
+- [x] **Hybrid brightness** — Instant gamma feedback + queued DDC hardware change for smooth knob feel.
+- [x] **DDC/CI display probing** — Auto-detect DDC support at startup, cache results, re-probe on display change/wake.
+- [x] **DDC/CI toggle in UI** — Checkbox in menu to enable/disable DDC globally. Persisted to UserDefaults.
 
-## v1.3 — Extended Brightness
+## v1.3 Extended Brightness — Complete
 
-- [ ] **Overlay dimming** — NSWindow black overlay for DisplayLink displays or sub-zero dimming.
-- [ ] **Night mode overlay** — Deep dim overlay for when gamma alone isn't dark enough.
-- [ ] **Per-display preferences** — Remember brightness method + level per display (by serial number).
+- [x] **Overlay dimming** — NSWindow black click-through overlay for DisplayLink displays or sub-zero dimming. Excluded from screenshots via `sharingType = .none`.
+- [x] **Night mode** — `toggleNightMode()` API: saves current brightness, applies deep overlay dim (5%), toggles on/off.
+- [x] **Per-display preferences** — Brightness level per display (by vendor-model-serial key) saved to UserDefaults. Restored on display switch.
 
 ## v2.0 — Custom Mode (Phase 03)
 
