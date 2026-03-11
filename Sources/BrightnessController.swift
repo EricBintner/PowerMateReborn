@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CoreGraphics
 
@@ -5,6 +6,10 @@ enum BrightnessMethod: String {
     case displayServices = "DisplayServices"
     case gamma = "Gamma"
     case none = "None"
+
+    var isNative: Bool {
+        return self == .displayServices
+    }
 }
 
 class BrightnessController {
@@ -27,6 +32,7 @@ class BrightnessController {
     init() {
         loadDisplayServices()
         detectMethod()
+        installDisplayChangeListeners()
     }
 
     // MARK: - Setup
@@ -129,6 +135,10 @@ class BrightnessController {
         return method != .none
     }
 
+    var isVirtual: Bool {
+        return method == .gamma
+    }
+
     func sleepDisplay() {
         let script = NSAppleScript(source: "tell application \"System Events\" to sleep")
         var error: NSDictionary?
@@ -140,6 +150,52 @@ class BrightnessController {
         if method == .gamma && gammaTableCaptured {
             CGSetDisplayTransferByTable(CGMainDisplayID(), 256,
                                         originalGammaRed, originalGammaGreen, originalGammaBlue)
+        }
+    }
+
+    // MARK: - Display Change Listeners
+
+    private func installDisplayChangeListeners() {
+        // Re-apply gamma after display reconfiguration (sleep/wake, resolution change, display added/removed)
+        CGDisplayRegisterReconfigurationCallback({ displayID, flags, userInfo in
+            guard let userInfo = userInfo else { return }
+            let self_ = Unmanaged<BrightnessController>.fromOpaque(userInfo).takeUnretainedValue()
+            // Only act after reconfiguration completes (not before)
+            if flags.contains(.beginConfigurationFlag) { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self_.onDisplayReconfigured(displayID)
+            }
+        }, Unmanaged.passUnretained(self).toOpaque())
+
+        // Also listen for system wake
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Delay for display subsystem to reinitialize
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self?.onSystemWake()
+            }
+        }
+    }
+
+    private func onDisplayReconfigured(_ displayID: CGDirectDisplayID) {
+        guard method == .gamma else { return }
+        // Re-capture original gamma if needed, then re-apply our dimming level
+        if gammaLevel < 1.0 {
+            NSLog("Brightness: display reconfigured, re-applying gamma (level=%.0f%%)", gammaLevel * 100)
+            applyGamma(gammaLevel)
+        }
+    }
+
+    private func onSystemWake() {
+        guard method == .gamma else { return }
+        // macOS resets gamma tables on wake — re-capture and re-apply
+        captureOriginalGamma()
+        if gammaLevel < 1.0 {
+            NSLog("Brightness: system wake, re-applying gamma (level=%.0f%%)", gammaLevel * 100)
+            applyGamma(gammaLevel)
         }
     }
 

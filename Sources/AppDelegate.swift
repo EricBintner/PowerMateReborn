@@ -1,6 +1,8 @@
 import AppKit
 import CoreAudio
 import Foundation
+import ServiceManagement
+import Sparkle
 
 // MARK: - Knob Modes
 
@@ -26,11 +28,12 @@ enum KnobMode: String, CaseIterable {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeChangeDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeChangeDelegate, SPUUpdaterDelegate {
     private var statusItem: NSStatusItem!
     private var powerMate = PowerMateHID()
     private var volumeController = VolumeController()
     private var brightnessController = BrightnessController()
+    private var updaterController: SPUStandardUpdaterController!
 
     // Multi-mode
     private var currentMode: KnobMode = .volume
@@ -40,6 +43,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var stepSize: Float = 0.03  // 3% per rotation tick
     private var ledFollowsLevel: Bool = true
 
+    // Launch at login
+    private var launchAtLogin: Bool = false
+
     // Snap-to-value state (double-tap toggles)
     private var volumeBeforeSnap: Float?
     private var brightnessBeforeSnap: Float?
@@ -47,6 +53,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var brightnessSnapValue: Float = 0.15  // 15% (night mode)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Only initialize Sparkle if running inside a proper .app bundle (prevents errors during `swift run`)
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        }
+        
         loadSettings()
         setupMenuBar()
         volumeController.delegate = self
@@ -99,31 +110,51 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // --- Connection Status ---
         let statusTitle = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Disconnected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
+        let dotColor: NSColor = powerMate.isConnected ? .systemGreen : .systemGray
+        if let img = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
+            let coloredImage = img.copy() as! NSImage
+            coloredImage.isTemplate = false
+            coloredImage.lockFocus()
+            dotColor.set()
+            let rect = NSRect(origin: .zero, size: img.size)
+            rect.fill(using: .sourceAtop)
+            coloredImage.unlockFocus()
+            statusMenuItem.image = coloredImage
+        }
         menu.addItem(statusMenuItem)
+        
+        let hintItem = NSMenuItem(title: "Quick Start Guide", action: #selector(showQuickStart), keyEquivalent: "")
+        hintItem.target = self
+        if let img = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) {
+            hintItem.image = img
+        }
+        menu.addItem(hintItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // --- Active Mode Selection ---
-        let modeHeader = NSMenuItem(title: "Active Mode", action: nil, keyEquivalent: "")
-        modeHeader.isEnabled = false
-        menu.addItem(modeHeader)
-
+        let modeMenu = NSMenu()
+        modeMenu.autoenablesItems = false
+        
         for mode in KnobMode.allCases {
             guard enabledModes.contains(mode) else { continue }
             let isCurrent = (mode == currentMode)
-            let item = NSMenuItem(title: "    \(mode.rawValue)", action: #selector(switchToMode(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: mode.rawValue, action: #selector(switchToMode(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = mode.rawValue
             if let img = NSImage(systemSymbolName: mode.icon, accessibilityDescription: nil) {
                 item.image = img
             }
             if isCurrent { item.state = .on }
-            menu.addItem(item)
+            modeMenu.addItem(item)
         }
-
-        let hintItem = NSMenuItem(title: "    (Press: action | 2x tap: snap | Hold: cycle)", action: nil, keyEquivalent: "")
-        hintItem.isEnabled = false // Help text should be grayed
-        menu.addItem(hintItem)
+        
+        let modeHeader = NSMenuItem(title: "Active Mode: \(currentMode.rawValue)", action: nil, keyEquivalent: "")
+        modeHeader.submenu = modeMenu
+        if let img = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil) {
+            modeHeader.image = img
+        }
+        menu.addItem(modeHeader)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -137,6 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(volLabel)
 
         let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Unmute" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
+        muteItem.indentationLevel = 3 // Increased indentation further
         muteItem.target = self
         menu.addItem(muteItem)
 
@@ -244,11 +276,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         menu.addItem(NSMenuItem.separator())
 
+        // Launch at Login toggle
+        let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        loginItem.target = self
+        loginItem.state = launchAtLogin ? .on : .off
+        if let img = NSImage(systemSymbolName: "power", accessibilityDescription: nil) {
+            loginItem.image = img
+        }
+        menu.addItem(loginItem)
+
+        // Add update check menu item
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+
+        // About
+        let aboutItem = NSMenuItem(title: "About PowerMate...", action: #selector(showAboutWindow), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
         let quitItem = NSMenuItem(title: "Quit PowerMate", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+        updateMenuLevels()
     }
 
     private func refreshMenu() {
@@ -380,6 +432,283 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         NSApplication.shared.terminate(nil)
     }
 
+    @objc private func checkForUpdates() {
+        updaterController?.checkForUpdates(nil)
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        launchAtLogin.toggle()
+        do {
+            if launchAtLogin {
+                try SMAppService.mainApp.register()
+                NSLog("Launch at login: enabled")
+            } else {
+                try SMAppService.mainApp.unregister()
+                NSLog("Launch at login: disabled")
+            }
+        } catch {
+            NSLog("Launch at login failed: %@", error.localizedDescription)
+            launchAtLogin.toggle() // revert on failure
+        }
+        refreshMenu()
+    }
+
+    @objc private func showAboutWindow() {
+        let alert = NSAlert()
+        alert.messageText = "PowerMateReborn"
+        alert.alertStyle = .informational
+
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .centerX
+        container.spacing = 12
+
+        // Version info
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        let versionLabel = NSTextField(labelWithString: "Version \(version) (\(build))")
+        versionLabel.font = NSFont.systemFont(ofSize: 13)
+        versionLabel.textColor = .secondaryLabelColor
+        versionLabel.alignment = .center
+        container.addArrangedSubview(versionLabel)
+
+        // Device status
+        let connected = powerMate.isConnected
+        let deviceStatus = connected ? "🟢 PowerMate Connected" : "⚪️ PowerMate Disconnected"
+        let statusLabel = NSTextField(labelWithString: deviceStatus)
+        statusLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        statusLabel.textColor = .labelColor
+        statusLabel.alignment = .center
+        container.addArrangedSubview(statusLabel)
+
+        // Audio info
+        let audioInfo = "Audio: \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))"
+        let audioLabel = NSTextField(labelWithString: audioInfo)
+        audioLabel.font = NSFont.systemFont(ofSize: 12)
+        audioLabel.textColor = .secondaryLabelColor
+        audioLabel.alignment = .center
+        container.addArrangedSubview(audioLabel)
+
+        // Brightness info
+        let brightnessInfo = "Brightness: \(brightnessController.method.rawValue)"
+        let brightnessLabel = NSTextField(labelWithString: brightnessInfo)
+        brightnessLabel.font = NSFont.systemFont(ofSize: 12)
+        brightnessLabel.textColor = .secondaryLabelColor
+        brightnessLabel.alignment = .center
+        container.addArrangedSubview(brightnessLabel)
+
+        // Spacer
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 4).isActive = true
+        container.addArrangedSubview(spacer)
+
+        // Report Issue button
+        let issueButton = NSButton(title: "Report Issue on GitHub", target: self, action: #selector(openGitHubIssues))
+        issueButton.bezelStyle = .rounded
+        container.addArrangedSubview(issueButton)
+
+        container.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        container.layoutSubtreeIfNeeded()
+        container.frame = NSRect(origin: .zero, size: container.fittingSize)
+
+        alert.accessoryView = container
+        
+        // Create custom composite icon: Folder + Current Mode Symbol
+        let folderIcon = NSWorkspace.shared.icon(for: .folder)
+        let compositeImage = NSImage(size: NSSize(width: 128, height: 128))
+        compositeImage.lockFocus()
+        folderIcon.draw(in: NSRect(x: 0, y: 0, width: 128, height: 128))
+        
+        if let overlay = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil) {
+            // Render the overlay symbol purely white
+            let overlayImg = NSImage(size: NSSize(width: 64, height: 64))
+            overlayImg.lockFocus()
+            overlay.draw(in: NSRect(x: 0, y: 0, width: 64, height: 64))
+            NSColor.white.set()
+            NSRect(x: 0, y: 0, width: 64, height: 64).fill(using: .sourceAtop)
+            overlayImg.unlockFocus()
+            
+            // Add a drop shadow for depth
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+            shadow.shadowOffset = NSSize(width: 0, height: -3)
+            shadow.shadowBlurRadius = 5
+            shadow.set()
+            
+            // Draw centered but slightly lower so it sits naturally on the folder body
+            overlayImg.draw(in: NSRect(x: 32, y: 24, width: 64, height: 64))
+        }
+        compositeImage.unlockFocus()
+        alert.icon = compositeImage
+        
+        alert.addButton(withTitle: "OK")
+
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    @objc private func openGitHubIssues() {
+        if let url = URL(string: "https://github.com/EricBintner/PowerMateReborn/issues/new") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func showQuickStart() {
+        let alert = NSAlert()
+        alert.messageText = "PowerMate Controls"
+        alert.alertStyle = .informational
+        
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .centerX
+        container.spacing = 10
+        
+        // 1. Large Custom Image
+        if let iconPath = Bundle.module.path(forResource: "powermate", ofType: "png") ?? Bundle.main.path(forResource: "powermate", ofType: "png"),
+           let img = NSImage(contentsOfFile: iconPath) {
+            let imageView = NSImageView(image: img)
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                imageView.widthAnchor.constraint(equalToConstant: 250),
+                imageView.heightAnchor.constraint(equalToConstant: 95)
+            ])
+            container.addArrangedSubview(imageView)
+        }
+        
+        // 2. Grid Table for Controls
+        let grid = NSGridView()
+        grid.rowSpacing = 8
+        grid.columnSpacing = 16
+        
+        let actions = [
+            ("Turn knob", "Adjust volume or brightness"),
+            ("Press down", "Mute audio or sleep display"),
+            ("Double-tap", "Snap to preset (20% vol / dim)"),
+            ("Press & hold", "Switch between Volume & Brightness")
+        ]
+        
+        for (action, desc) in actions {
+            let actionLabel = NSTextField(labelWithString: action)
+            actionLabel.font = NSFont.boldSystemFont(ofSize: 13)
+            actionLabel.alignment = .right
+            actionLabel.isEditable = false
+            actionLabel.isSelectable = false
+            actionLabel.drawsBackground = false
+            actionLabel.isBordered = false
+            
+            let descLabel = NSTextField(labelWithString: desc)
+            descLabel.font = NSFont.systemFont(ofSize: 13)
+            descLabel.alignment = .left
+            descLabel.isEditable = false
+            descLabel.isSelectable = false
+            descLabel.drawsBackground = false
+            descLabel.isBordered = false
+            
+            grid.addRow(with: [actionLabel, descLabel])
+        }
+        
+        container.addArrangedSubview(grid)
+        
+        // 3. Footer Text
+        let footer = NSTextField(labelWithString: "You can configure the active mode, output device, and rotation sensitivity using this menu.")
+        footer.font = NSFont.systemFont(ofSize: 12)
+        footer.textColor = .secondaryLabelColor
+        footer.alignment = .center
+        footer.isEditable = false
+        footer.isSelectable = false
+        footer.drawsBackground = false
+        footer.isBordered = false
+        container.addArrangedSubview(footer)
+        
+        // Add padding
+        container.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 10, right: 10)
+        container.layoutSubtreeIfNeeded()
+        
+        let requiredSize = container.fittingSize
+        
+        // Wrap the container in an explicit fixed-size NSView. 
+        // NSAlert requires the accessoryView to have a fully specified frame.
+        let wrapper = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: requiredSize.height))
+        container.frame = wrapper.bounds
+        container.autoresizingMask = [.width, .height]
+        wrapper.addSubview(container)
+        
+        alert.accessoryView = wrapper
+        
+        // Hide standard icon since we added a large one to the accessory view
+        alert.icon = NSImage(size: NSSize(width: 1, height: 1))
+        
+        alert.addButton(withTitle: "Got it")
+        
+        // Ensure the alert appears in front of everything
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    // MARK: - SPUUpdaterDelegate
+
+    func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
+        NSLog("Sparkle: Appcast loaded successfully")
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        NSLog("Sparkle: Found valid update to version %@", item.versionString)
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+        NSLog("Sparkle: No updates available")
+    }
+
+    func updater(_ updater: SPUUpdater, failedToLoadAppcastWithError error: Error) {
+        NSLog("Sparkle: Failed to load appcast: %@", error.localizedDescription)
+    }
+
+    // MARK: - Menu Helpers
+
+    private func updateMenuLevels() {
+        guard let menu = statusItem.menu else { return }
+        
+        if let volItem = menu.item(withTag: 100) {
+            volItem.attributedTitle = attributedLevelTitle(
+                "Volume",
+                level: volumeController.getVolume(),
+                isVirtual: volumeController.isSoftwareVolume,
+                isAvailable: true
+            )
+        }
+        
+        if let brItem = menu.item(withTag: 101) {
+            brItem.attributedTitle = attributedLevelTitle(
+                "Brightness",
+                level: brightnessController.getCurrentBrightness(),
+                isVirtual: brightnessController.isVirtual,
+                isAvailable: brightnessController.isAvailable
+            )
+        }
+    }
+
+    private func attributedLevelTitle(_ base: String, level: Float, isVirtual: Bool, isAvailable: Bool) -> NSAttributedString {
+        let percentage = "\(Int(level * 100))%"
+        let methodText = !isAvailable ? "Unavailable" : (isVirtual ? "Virtual" : "Hardware")
+        
+        let fullString = "\(base): \(percentage)   \(methodText)"
+        
+        let attrStr = NSMutableAttributedString(string: fullString)
+        let fullRange = NSRange(location: 0, length: attrStr.length)
+        
+        attrStr.addAttribute(.font, value: NSFont.menuBarFont(ofSize: 0), range: fullRange)
+        
+        if let range = fullString.range(of: methodText) {
+            let nsRange = NSRange(range, in: fullString)
+            attrStr.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: nsRange)
+            attrStr.addAttribute(.font, value: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), range: nsRange)
+        }
+        
+        return attrStr
+    }
+
     // MARK: - LED Helpers
 
     private func updateLEDForLevel() {
@@ -422,18 +751,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .brightness:
             brightnessController.adjustBrightness(by: adjustment)
         case .custom:
-            NSLog("Custom mode rotation: \(delta)")
+            break
         }
-
         updateLEDForLevel()
-
-        // Live-update menu if open (both sections always visible)
-        if let volItem = statusItem.menu?.item(withTag: 100) {
-            volItem.title = "Volume: \(Int(volumeController.getVolume() * 100))%"
-        }
-        if let brItem = statusItem.menu?.item(withTag: 101) {
-            brItem.title = "Brightness: \(Int(brightnessController.getCurrentBrightness() * 100))%"
-        }
+        updateMenuLevels()
     }
 
     func powerMateButtonPressed() {
@@ -494,9 +815,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     func volumeDidChange(volume: Float, muted: Bool) {
         // External volume change (keyboard, Control Center, another app)
         updateLEDForLevel()
-        if let levelItem = statusItem.menu?.item(withTag: 100), currentMode == .volume {
-            levelItem.title = "Volume: \(Int(volume * 100))%"
-        }
+        updateMenuLevels()
     }
 
     func audioDeviceDidChange(deviceName: String, method: VolumeControlMethod) {
@@ -534,7 +853,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if d.object(forKey: "powermate.brightness.snapValue") != nil {
             brightnessSnapValue = d.float(forKey: "powermate.brightness.snapValue")
         }
-        NSLog("Settings: mode=%@ step=%.0f%% led=%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel)
+        // Sync launch-at-login with actual SMAppService status
+        launchAtLogin = (SMAppService.mainApp.status == .enabled)
+        NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin)
     }
 
     private func saveSettings() {

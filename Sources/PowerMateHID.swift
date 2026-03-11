@@ -62,14 +62,14 @@ class PowerMateHID {
         IOHIDManagerRegisterDeviceMatchingCallback(manager, matchCallback, selfPtr)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, removeCallback, selfPtr)
 
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
     func stop() {
         if let manager = manager {
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         }
         manager = nil
         device = nil

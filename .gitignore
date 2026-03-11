@@ -3,3 +3,4 @@
 PowerMateDriver.app/
 *.xcodeproj
 *~
+build/
