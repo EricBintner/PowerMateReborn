@@ -31,6 +31,7 @@ class PowerMateHID {
     private var longPressFired: Bool = false
     private var tapCount: Int = 0
     private var singleTapTimer: Timer?
+    private var rotatedWhilePressed: Bool = false
 
     // LED state
     private(set) var ledBrightness: UInt8 = 0
@@ -88,17 +89,6 @@ class PowerMateHID {
         sendOutputReport(brightness)
     }
 
-    /// Set LED to breathe/pulse
-    func setLEDPulse(speed: UInt8, brightness: UInt8 = 255) {
-        ledBrightness = brightness
-        // On macOS Sequoia, only the 1-byte HID output report reaches the device.
-        // We cannot control pulse parameters (feature SET_REPORT is unsupported
-        // by this device, and legacy USB vendor commands are dead on Sequoia).
-        // Send brightness as output report — the device may or may not pulse
-        // depending on its stored firmware state.
-        sendOutputReport(brightness)
-    }
-
     // MARK: - LED Implementation
 
     /// Send a 1-byte HID output report — the only write path that works on macOS Sequoia
@@ -112,13 +102,19 @@ class PowerMateHID {
 
     /// Visual startup test: flash LED off->on to confirm communication
     private func runStartupLEDTest() {
-        NSLog("LED: startup test — flash off->on")
-        sendOutputReport(0)       // LED off
-        usleep(300_000)           // 300ms
-        sendOutputReport(255)     // LED full bright
-        usleep(300_000)           // 300ms
-        sendOutputReport(0)       // LED off
-        usleep(200_000)           // 200ms
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            NSLog("LED: startup test — flash off->on")
+            self.sendOutputReport(0)       // LED off
+            usleep(300_000)                // 300ms
+            self.sendOutputReport(255)     // LED full bright
+            usleep(300_000)                // 300ms
+            self.sendOutputReport(0)       // LED off
+            usleep(200_000)                // 200ms
+            
+            // Restore actual brightness state
+            self.sendOutputReport(self.ledBrightness)
+        }
     }
 
     // MARK: - Private
@@ -150,6 +146,16 @@ class PowerMateHID {
     private func onDeviceRemoved(_ hidDevice: IOHIDDevice) {
         device = nil
         lastButtonState = false
+        
+        // Clean up pending gesture timers to prevent ghost events
+        singleTapTimer?.invalidate()
+        singleTapTimer = nil
+        longPressTimer?.invalidate()
+        longPressTimer = nil
+        buttonDownTime = nil
+        longPressFired = false
+        tapCount = 0
+        
         DispatchQueue.main.async {
             self.delegate?.powerMateDidDisconnect()
         }
@@ -175,6 +181,9 @@ class PowerMateHID {
 
             // Rotation events
             if rotation != 0 {
+                if self.buttonDownTime != nil {
+                    self.rotatedWhilePressed = true
+                }
                 self.delegate?.powerMateDidRotate(delta: rotation)
             }
         }
@@ -185,6 +194,7 @@ class PowerMateHID {
     private func onButtonDown() {
         buttonDownTime = Date()
         longPressFired = false
+        rotatedWhilePressed = false
 
         // Cancel pending single-tap timer (we got another press)
         singleTapTimer?.invalidate()
@@ -212,6 +222,13 @@ class PowerMateHID {
         guard !longPressFired else {
             buttonDownTime = nil
             longPressFired = false
+            rotatedWhilePressed = false
+            return
+        }
+        
+        guard !rotatedWhilePressed else {
+            buttonDownTime = nil
+            rotatedWhilePressed = false
             return
         }
 

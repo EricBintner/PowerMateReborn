@@ -101,6 +101,8 @@ class VolumeController {
     private let appleScriptMinInterval: TimeInterval = 0.05  // 20/sec max
     private var pendingAppleScriptVolume: Float?
     private var appleScriptTimer: Timer?
+    private var appleScriptConsecutiveFailures: Int = 0
+    private let appleScriptMaxFailures: Int = 3
 
     // Listeners (A2, A3)
     private var deviceListenerInstalled = false
@@ -269,7 +271,21 @@ class VolumeController {
         removeVolumeListeners()
         activeDeviceID = deviceID
         activeDeviceInfo = dev
-        volumeMethod = dev.bestVolumeMethod
+        
+        // Determine method, with safety fallback for virtual devices
+        var method = dev.bestVolumeMethod
+        let isVirtual = dev.transportType == kAudioDeviceTransportTypeVirtual
+        if isVirtual && method == .none {
+            method = .softwareVolume
+        } else if method == .none {
+            method = probeAppleScriptVolume() ? .appleScript : .softwareVolume
+        }
+        // Force software volume for virtual devices relying on AppleScript (it rarely works)
+        if isVirtual && method == .appleScript {
+            method = .softwareVolume
+        }
+        
+        volumeMethod = method
         if volumeMethod == .softwareVolume {
             softwareLevel = 0.75
             softwareMuted = false
@@ -325,6 +341,13 @@ class VolumeController {
         activeDeviceID = defaultDeviceID
         activeDeviceInfo = defaultDeviceInfo
         volumeMethod = defaultMethod
+        
+        // Final safety: if we still landed on a virtual device with AppleScript, force software volume
+        let finalIsVirtual = activeDeviceInfo?.transportType == kAudioDeviceTransportTypeVirtual
+        if finalIsVirtual && volumeMethod == .appleScript {
+            NSLog("Audio: Virtual device still on AppleScript after fallback search — forcing software volume")
+            volumeMethod = .softwareVolume
+        }
 
         // When switching TO software volume, initialize from AppleScript if possible
         if volumeMethod == .softwareVolume && previousDeviceID != activeDeviceID {
@@ -393,7 +416,10 @@ class VolumeController {
             guard streamCount > 0 else { continue }
 
             if let info = probeDevice(dev) {
-                result.append(info)
+                // Filter out Aggregate Devices as they do not properly support volume control
+                if info.transportType != kAudioDeviceTransportTypeAggregate {
+                    result.append(info)
+                }
             }
         }
         return result
@@ -788,25 +814,72 @@ class VolumeController {
         let intVol = Int(volume * 100)
         let script = NSAppleScript(source: "set volume output volume \(intVol)")
         var error: NSDictionary?
-        script?.executeAndReturnError(&error)
+        let result = script?.executeAndReturnError(&error)
+        
+        if result == nil || error != nil {
+            handleAppleScriptError(error)
+        } else {
+            appleScriptConsecutiveFailures = 0
+        }
     }
 
     private func getAppleScriptMute() -> Bool {
         let script = NSAppleScript(source: "output muted of (get volume settings)")
         var error: NSDictionary?
         let result = script?.executeAndReturnError(&error)
+        
+        if result == nil || error != nil {
+            handleAppleScriptError(error)
+        } else {
+            appleScriptConsecutiveFailures = 0
+        }
+        
         return result?.booleanValue ?? false
     }
 
     private func toggleAppleScriptMute() {
-        let muted = getAppleScriptMute()
-        setAppleScriptMute(!muted)
+        let script = NSAppleScript(source: "set volume output muted not (output muted of (get volume settings))")
+        var error: NSDictionary?
+        let result = script?.executeAndReturnError(&error)
+        
+        if result == nil || error != nil {
+            handleAppleScriptError(error)
+        } else {
+            appleScriptConsecutiveFailures = 0
+        }
     }
 
     private func setAppleScriptMute(_ mute: Bool) {
         let script = NSAppleScript(source: "set volume output muted \(mute)")
         var error: NSDictionary?
-        script?.executeAndReturnError(&error)
+        let result = script?.executeAndReturnError(&error)
+        
+        if result == nil || error != nil {
+            handleAppleScriptError(error)
+        } else {
+            appleScriptConsecutiveFailures = 0
+        }
+    }
+    
+    private func handleAppleScriptError(_ error: NSDictionary?) {
+        let errorMsg = error?["NSAppleScriptErrorMessage"] as? String ?? "Unknown error"
+        NSLog("Audio: AppleScript execution failed: %@", errorMsg)
+        
+        appleScriptConsecutiveFailures += 1
+        if appleScriptConsecutiveFailures >= appleScriptMaxFailures {
+            NSLog("Audio: AppleScript failed %d times consecutively. Downgrading to software volume.", appleScriptConsecutiveFailures)
+            appleScriptConsecutiveFailures = 0
+            
+            // Downgrade the method to software volume
+            volumeMethod = .softwareVolume
+            softwareLevel = 0.75
+            softwareMuted = false
+            simulatedMute = false
+            
+            DispatchQueue.main.async {
+                self.delegate?.audioDeviceDidChange(deviceName: self.activeDeviceName, method: self.volumeMethod)
+            }
+        }
     }
 
     // MARK: - AppleScript Probing

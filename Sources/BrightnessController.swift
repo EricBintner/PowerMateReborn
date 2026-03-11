@@ -222,6 +222,24 @@ class BrightnessController {
         switch state.method {
         case .displayServices:
             dsSetBrightness?(displayID, clamped)
+            // Reliability sanity check: if the API silently fails, downgrade to Gamma
+            if let getter = dsGetBrightness {
+                usleep(10_000) // 10ms wait for it to apply
+                let readback = getter(displayID)
+                if abs(readback - clamped) > 0.1 && abs(readback - state.gammaLevel) > 0.1 {
+                    NSLog("Brightness: DisplayServices silently failed for %d. Downgrading to Gamma.", displayID)
+                    captureOriginalGamma(for: displayID, into: state)
+                    if state.gammaTableCaptured {
+                        state.method = .gamma
+                        applyGamma(clamped, for: displayID, state: state)
+                    } else {
+                        state.method = .overlay
+                        applyOverlay(clamped, for: displayID, state: state)
+                    }
+                } else {
+                    state.gammaLevel = clamped // Keep sync for hybrid logic if needed
+                }
+            }
 
         case .ddcHybrid:
             state.gammaLevel = clamped
@@ -408,6 +426,9 @@ class BrightnessController {
     }
 
     private func onSystemWake() {
+        // Sleep/wake often breaks IOAVService handles, force a full DDC reprobe
+        NSLog("Brightness: System woke from sleep, re-probing displays...")
+        ddcController.probeDisplays()
         onDisplayReconfigured()
     }
 

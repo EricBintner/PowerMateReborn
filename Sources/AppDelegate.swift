@@ -33,10 +33,12 @@ enum KnobMode: String, CaseIterable {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeChangeDelegate, SPUUpdaterDelegate {
+    static private(set) var shared: AppDelegate!
+
     private var statusItem: NSStatusItem!
     private var powerMate = PowerMateHID()
     private var volumeController = VolumeController()
-    private var brightnessController = BrightnessController()
+    private(set) var brightnessController = BrightnessController()
     private var midiController = MIDIController()
     private let customEngine = CustomModeEngine.shared
     private var updaterController: SPUStandardUpdaterController!
@@ -61,6 +63,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     // UI Window Controllers
     private var customSettingsWindowController: NSWindowController?
+
+    override init() {
+        super.init()
+        AppDelegate.shared = self
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Only initialize Sparkle if running inside a proper .app bundle (prevents errors during `swift run`)
@@ -107,8 +114,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         button.title = ""
         if !powerMate.isConnected {
             button.image = MenuBarIcon.disconnected()
+            button.setAccessibilityLabel("PowerMate Disconnected")
         } else {
             button.image = currentMode.menuBarImage
+            button.setAccessibilityLabel("PowerMate: \(currentMode.rawValue) Mode")
         }
         button.imagePosition = .imageOnly
         NSLog("Menu: title='%@' connected=%d", button.title, powerMate.isConnected)
@@ -122,7 +131,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let statusTitle = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Disconnected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         let dotColor: NSColor = powerMate.isConnected ? .systemGreen : .systemGray
-        if let img = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
+        if let img = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: powerMate.isConnected ? "Connected" : "Disconnected") {
             let coloredImage = img.copy() as! NSImage
             coloredImage.isTemplate = false
             coloredImage.lockFocus()
@@ -136,7 +145,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         
         let hintItem = NSMenuItem(title: "Quick Start Guide", action: #selector(showQuickStart), keyEquivalent: "")
         hintItem.target = self
-        if let img = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) {
+        if let img = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Quick Start Guide") {
             hintItem.image = img
         }
         menu.addItem(hintItem)
@@ -179,7 +188,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(volLabel)
 
         let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Unmute" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
-        muteItem.indentationLevel = 3 // Increased indentation further
+        // Use an empty image to perfectly align the text with the item above it
+        if let templateImg = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil) {
+            muteItem.image = NSImage(size: templateImg.size)
+        }
         muteItem.target = self
         menu.addItem(muteItem)
 
@@ -200,9 +212,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Brightness warning when using software dimming
         if brMethod.isSoftware {
             let warnItem = NSMenuItem(title: "Using software dimming (backlight unchanged)", action: nil, keyEquivalent: "")
-            warnItem.indentationLevel = 2
-            if let img = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil) {
-                warnItem.image = img
+            // Use an empty image to perfectly align the text with the item above it
+            if let templateImg = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
+                warnItem.image = NSImage(size: templateImg.size)
             }
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
@@ -300,7 +312,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         ledMenu.addItem(ledFollowItem)
         ledMenu.addItem(NSMenuItem.separator())
 
-        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright)), ("Breathe", #selector(ledPulse))] {
+        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             ledMenu.addItem(item)
@@ -373,6 +385,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         menu.addItem(NSMenuItem.separator())
 
+        // Custom Mode Settings
+        let customSettingsItem = NSMenuItem(title: "Custom Mode Settings...", action: #selector(showCustomSettings), keyEquivalent: "")
+        customSettingsItem.target = self
+        if let img = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil) {
+            customSettingsItem.image = img
+        }
+        menu.addItem(customSettingsItem)
+
         // Launch at Login toggle
         let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
         loginItem.target = self
@@ -382,26 +402,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         menu.addItem(loginItem)
 
-        // Custom Mode Settings
-        let customSettingsItem = NSMenuItem(title: "Custom Mode Settings...", action: #selector(showCustomSettings), keyEquivalent: "")
-        customSettingsItem.target = self
-        if let img = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil) {
-            customSettingsItem.image = img
-        }
-        menu.addItem(customSettingsItem)
-
-        // Add update check menu item
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        menu.addItem(updateItem)
+        menu.addItem(NSMenuItem.separator())
 
         // About
         let aboutItem = NSMenuItem(title: "About PowerMate...", action: #selector(showAboutWindow), keyEquivalent: "")
         aboutItem.target = self
+        // Use an empty image to perfectly align the text with other menu items
+        if let templateImg = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) {
+            aboutItem.image = NSImage(size: templateImg.size)
+        }
         menu.addItem(aboutItem)
+
+        // Add update check menu item
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        if updaterController == nil {
+            updateItem.isEnabled = false
+        }
+        // Use an empty image to perfectly align the text with other menu items
+        if let templateImg = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil) {
+            updateItem.image = NSImage(size: templateImg.size)
+        }
+        menu.addItem(updateItem)
 
         let quitItem = NSMenuItem(title: "Quit PowerMate", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
+        // Use an empty image to perfectly align the text with other menu items
+        if let templateImg = NSImage(systemSymbolName: "power.circle", accessibilityDescription: nil) {
+            quitItem.image = NSImage(size: templateImg.size)
+        }
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -578,12 +607,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         refreshMenu()
     }
 
-    @objc private func ledPulse() {
-        ledFollowsLevel = false
-        powerMate.setLEDPulse(speed: 12, brightness: 255)
-        refreshMenu()
-    }
-
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
@@ -613,100 +636,55 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let alert = NSAlert()
         alert.messageText = "PowerMateReborn"
         alert.alertStyle = .informational
+        
+        // Set custom icon (logo) at the top
+        if let logoPath = Bundle.module.path(forResource: "logo", ofType: "svg") ?? Bundle.main.path(forResource: "logo", ofType: "svg"),
+           let logoImg = NSImage(contentsOfFile: logoPath) {
+            alert.icon = logoImg
+        }
 
         let container = NSStackView()
         container.orientation = .vertical
         container.alignment = .centerX
-        container.spacing = 12
-
+        container.spacing = 8
+        
         // Version info
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
-        let versionLabel = NSTextField(labelWithString: "Version \(version) (\(build))")
+        let versionLabel = NSTextField(labelWithString: "Version 2.0")
         versionLabel.font = NSFont.systemFont(ofSize: 13)
         versionLabel.textColor = .secondaryLabelColor
         versionLabel.alignment = .center
+        versionLabel.isEditable = false
+        versionLabel.isSelectable = false
+        versionLabel.drawsBackground = false
+        versionLabel.isBordered = false
         container.addArrangedSubview(versionLabel)
-
+        
         // Device status
-        let connected = powerMate.isConnected
-        let deviceStatus = connected ? "🟢 PowerMate Connected" : "⚪️ PowerMate Disconnected"
+        let deviceStatus = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Not Connected"
         let statusLabel = NSTextField(labelWithString: deviceStatus)
-        statusLabel.font = NSFont.boldSystemFont(ofSize: 13)
-        statusLabel.textColor = .labelColor
-        statusLabel.alignment = .center
+        statusLabel.font = NSFont.systemFont(ofSize: 12)
+        statusLabel.textColor = NSColor.secondaryLabelColor
+        statusLabel.alignment = NSTextAlignment.center
+        statusLabel.isEditable = false
+        statusLabel.isSelectable = false
+        statusLabel.drawsBackground = false
+        statusLabel.isBordered = false
         container.addArrangedSubview(statusLabel)
-
-        // Audio info
-        let audioInfo = "Audio: \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))"
-        let audioLabel = NSTextField(labelWithString: audioInfo)
-        audioLabel.font = NSFont.systemFont(ofSize: 12)
-        audioLabel.textColor = .secondaryLabelColor
-        audioLabel.alignment = .center
-        container.addArrangedSubview(audioLabel)
-
-        // Brightness info
-        let brightnessInfo = "Brightness: \(brightnessController.method.rawValue)"
-        let brightnessLabel = NSTextField(labelWithString: brightnessInfo)
-        brightnessLabel.font = NSFont.systemFont(ofSize: 12)
-        brightnessLabel.textColor = .secondaryLabelColor
-        brightnessLabel.alignment = .center
-        container.addArrangedSubview(brightnessLabel)
-
-        // Tip about multi-display
-        let tipLabel = NSTextField(labelWithString: "Tip: By default, the knob dims all displays together. You can uncheck 'Sync All Displays' in the menu to control each monitor individually based on mouse location.")
-        tipLabel.font = NSFont.systemFont(ofSize: 11)
-        tipLabel.textColor = .secondaryLabelColor
-        tipLabel.lineBreakMode = .byWordWrapping
-        tipLabel.maximumNumberOfLines = 0
-        tipLabel.preferredMaxLayoutWidth = 300
-        container.addArrangedSubview(tipLabel)
-
-        // Spacer
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.heightAnchor.constraint(equalToConstant: 4).isActive = true
-        container.addArrangedSubview(spacer)
-
-        // Report Issue button
-        let issueButton = NSButton(title: "Report Issue on GitHub", target: self, action: #selector(openGitHubIssues))
-        issueButton.bezelStyle = .rounded
-        container.addArrangedSubview(issueButton)
-
-        container.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        
+        // Add padding
+        container.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 10, right: 10)
         container.layoutSubtreeIfNeeded()
-        container.frame = NSRect(origin: .zero, size: container.fittingSize)
-
-        alert.accessoryView = container
         
-        // Create custom composite icon: Folder + Current Mode Symbol
-        let folderIcon = NSWorkspace.shared.icon(for: .folder)
-        let compositeImage = NSImage(size: NSSize(width: 128, height: 128))
-        compositeImage.lockFocus()
-        folderIcon.draw(in: NSRect(x: 0, y: 0, width: 128, height: 128))
+        let requiredSize = container.fittingSize
         
-        if let overlay = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil) {
-            // Render the overlay symbol purely white
-            let overlayImg = NSImage(size: NSSize(width: 64, height: 64))
-            overlayImg.lockFocus()
-            overlay.draw(in: NSRect(x: 0, y: 0, width: 64, height: 64))
-            NSColor.white.set()
-            NSRect(x: 0, y: 0, width: 64, height: 64).fill(using: .sourceAtop)
-            overlayImg.unlockFocus()
-            
-            // Add a drop shadow for depth
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-            shadow.shadowOffset = NSSize(width: 0, height: -3)
-            shadow.shadowBlurRadius = 5
-            shadow.set()
-            
-            // Draw centered but slightly lower so it sits naturally on the folder body
-            overlayImg.draw(in: NSRect(x: 32, y: 24, width: 64, height: 64))
-        }
-        compositeImage.unlockFocus()
-        alert.icon = compositeImage
+        // Wrap the container in an explicit fixed-size NSView. 
+        // NSAlert requires the accessoryView to have a fully specified frame.
+        let wrapper = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: requiredSize.height))
+        container.frame = wrapper.bounds
+        container.autoresizingMask = [.width, .height]
+        wrapper.addSubview(container)
         
+        alert.accessoryView = wrapper
         alert.addButton(withTitle: "OK")
 
         NSApp.activate(ignoringOtherApps: true)
@@ -738,23 +716,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     @objc private func showQuickStart() {
         let alert = NSAlert()
-        alert.messageText = "PowerMate Controls"
+        alert.messageText = "Quick Start"
         alert.alertStyle = .informational
+        
+        // Set custom icon (logo) at the top
+        if let logoPath = Bundle.module.path(forResource: "logo", ofType: "svg") ?? Bundle.main.path(forResource: "logo", ofType: "svg"),
+           let logoImg = NSImage(contentsOfFile: logoPath) {
+            alert.icon = logoImg
+        }
         
         let container = NSStackView()
         container.orientation = .vertical
         container.alignment = .centerX
-        container.spacing = 10
+        container.spacing = 8
         
-        // 1. Large Custom Image
-        if let iconPath = Bundle.module.path(forResource: "powermate", ofType: "png") ?? Bundle.main.path(forResource: "powermate", ofType: "png"),
+        // 1. PowerMate device image
+        if let iconPath = Bundle.module.path(forResource: "griffin-technology-powermate-mac-os9", ofType: "png") ?? Bundle.main.path(forResource: "griffin-technology-powermate-mac-os9", ofType: "png"),
            let img = NSImage(contentsOfFile: iconPath) {
             let imageView = NSImageView(image: img)
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                imageView.widthAnchor.constraint(equalToConstant: 250),
-                imageView.heightAnchor.constraint(equalToConstant: 95)
+                imageView.widthAnchor.constraint(equalToConstant: 300),
+                imageView.heightAnchor.constraint(equalToConstant: 80)
             ])
             container.addArrangedSubview(imageView)
         }
@@ -794,7 +778,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.addArrangedSubview(grid)
         
         // 3. Footer Text
-        let footer = NSTextField(labelWithString: "You can configure the active mode, output device, and rotation sensitivity using this menu.")
+        let footer = NSTextField(wrappingLabelWithString: "You can configure the active mode, output device, and rotation sensitivity using this menu.")
         footer.font = NSFont.systemFont(ofSize: 12)
         footer.textColor = .secondaryLabelColor
         footer.alignment = .center
@@ -802,7 +786,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         footer.isSelectable = false
         footer.drawsBackground = false
         footer.isBordered = false
+        footer.maximumNumberOfLines = 0
+        footer.lineBreakMode = .byWordWrapping
+        footer.translatesAutoresizingMaskIntoConstraints = false
         container.addArrangedSubview(footer)
+        NSLayoutConstraint.activate([
+            footer.widthAnchor.constraint(equalToConstant: 480)
+        ])
         
         // Add padding
         container.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 10, right: 10)
@@ -812,16 +802,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         
         // Wrap the container in an explicit fixed-size NSView. 
         // NSAlert requires the accessoryView to have a fully specified frame.
-        let wrapper = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: requiredSize.height))
+        let wrapper = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: requiredSize.height))
         container.frame = wrapper.bounds
         container.autoresizingMask = [.width, .height]
         wrapper.addSubview(container)
         
         alert.accessoryView = wrapper
-        
-        // Hide standard icon since we added a large one to the accessory view
-        alert.icon = NSImage(size: NSSize(width: 1, height: 1))
-        
         alert.addButton(withTitle: "Got it")
         
         // Ensure the alert appears in front of everything

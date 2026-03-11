@@ -28,6 +28,10 @@ struct CustomModeSettingsView: View {
                             }
                         }
                         .tag(profile.id)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(profile.name)
+                        .accessibilityValue(engine.activeProfileID == profile.id ? "Active Profile" : "Inactive Profile")
+                        .accessibilityAddTraits(.isButton)
                         .contextMenu {
                             if !profile.isGlobal {
                                 Button("Remove") {
@@ -283,15 +287,17 @@ struct ActionConfigRow: View {
             Label(title, systemImage: icon)
                 .frame(width: 130, alignment: .leading)
                 .padding(.top, 4)
+                .accessibilityHidden(true) // VoiceOver will read the label inside the picker/button instead
 
             VStack(alignment: .leading, spacing: 8) {
-                Picker("", selection: $config.type) {
+                Picker(title, selection: $config.type) {
                     ForEach(CodableActionType.allCases) { type in
                         Text(type.displayName).tag(type)
                     }
                 }
                 .labelsHidden()
                 .frame(width: 200)
+                .accessibilityLabel("\(title) Action Type")
                 .onChange(of: config.type) { _ in }
 
                 Group {
@@ -314,11 +320,13 @@ struct ActionConfigRow: View {
                                 .padding(.vertical, 4)
                                 .background(Color.secondary.opacity(0.15))
                                 .cornerRadius(4)
+                                .accessibilityLabel("Current shortcut: \(config.keyboardShortcut.displayString.isEmpty ? "None" : config.keyboardShortcut.displayString)")
                             Button(isRecordingShortcut ? "Press keys..." : "Record Shortcut") {
                                 isRecordingShortcut = true
                                 startShortcutRecording()
                             }
                             .buttonStyle(.bordered)
+                            .accessibilityHint("Click to start recording a new keyboard shortcut")
                         }
 
                     case .media:
@@ -328,6 +336,7 @@ struct ActionConfigRow: View {
                             }
                         }
                         .frame(width: 150)
+                        .accessibilityLabel("Media Command")
 
                     case .midiCC:
                         HStack {
@@ -431,8 +440,10 @@ struct IntField: View {
             Text(label)
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .accessibilityHidden(true)
             TextField("", value: $value, formatter: NumberFormatter())
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel(label)
                 .onSubmit {
                     value = max(range.lowerBound, min(range.upperBound, value))
                 }
