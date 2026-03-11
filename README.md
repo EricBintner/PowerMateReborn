@@ -24,12 +24,14 @@ Since the official drivers haven't worked in years, this is a native Swift menu 
 
 ## Installation
 
-1. Download the latest `.dmg` release from the [Releases](https://github.com/EricBintner/PowerMateReborn/releases) page.
+This app is currently distributed directly via GitHub Releases.
+
+1. Download the latest `.dmg` release from the [GitHub Releases](https://github.com/EricBintner/PowerMateReborn/releases) page.
 2. Open the `.dmg` file.
 3. Drag the `PowerMateReborn` app to your Applications folder.
 4. Launch the app from your Applications folder.
 
-*Note: You may need to grant Accessibility permissions in System Settings > Privacy & Security > Accessibility for the app to function properly.*
+*Note: You may need to grant Accessibility permissions in System Settings > Privacy & Security > Accessibility for the app to function properly. Since the app is not currently notarized by Apple, you may need to right-click the app and select "Open" the first time you run it.*
 
 ## Project Structure & Roadmap
 
@@ -38,6 +40,7 @@ The project is organized into iterative phases (see the `Docs/` folder for deep-
 - **Phase 01:** Initial build and native HID connection setup.
 - **Phase 02:** Core app planning, advanced audio volume architecture, and multi-tier brightness research (DDC/CI, DisplayServices).
 - **Phase 03:** Custom control implementations and macro support.
+- **Phase 04:** Deployment, GitHub Releases, and future Mac App Store distribution plans.
 
 ## Research & Documentation
 
