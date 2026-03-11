@@ -9,12 +9,14 @@ import Sparkle
 enum KnobMode: String, CaseIterable {
     case volume = "Volume"
     case brightness = "Brightness"
+    case midi = "MIDI"
     case custom = "Custom"
 
     var icon: String {
         switch self {
         case .volume:     return "speaker.wave.2.fill"
         case .brightness: return "sun.max.fill"
+        case .midi:       return "pianokeys"
         case .custom:     return "slider.horizontal.3"
         }
     }
@@ -23,6 +25,7 @@ enum KnobMode: String, CaseIterable {
         switch self {
         case .volume:     return MenuBarIcon.volume()
         case .brightness: return MenuBarIcon.brightness()
+        case .midi:       return MenuBarIcon.custom()  // reuse for now
         case .custom:     return MenuBarIcon.custom()
         }
     }
@@ -33,7 +36,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var powerMate = PowerMateHID()
     private var volumeController = VolumeController()
     private var brightnessController = BrightnessController()
+    private var midiController = MIDIController()
     private var updaterController: SPUStandardUpdaterController!
+    private let osd = OSDOverlay()
 
     // Multi-mode
     private var currentMode: KnobMode = .volume
@@ -173,12 +178,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(muteItem)
 
         let br = brightnessController.getCurrentBrightness()
-        let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%", action: nil, keyEquivalent: "")
+        let brMethod = brightnessController.method
+        let brSuffix = brMethod == .gamma ? "  [Software]" : ""
+        let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%\(brSuffix)", action: nil, keyEquivalent: "")
         brLabel.tag = 101
-        if let img = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
+        // Use warning icon when using software/gamma dimming
+        let brIcon = brMethod == .gamma ? "sun.max.trianglebadge.exclamationmark" : "sun.max.fill"
+        if let img = NSImage(systemSymbolName: brIcon, accessibilityDescription: nil) ??
+           NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
             brLabel.image = img
         }
         menu.addItem(brLabel)
+
+        // Brightness warning when using software dimming
+        if brMethod == .gamma {
+            let warnItem = NSMenuItem(title: "Using software dimming (backlight unchanged)", action: nil, keyEquivalent: "")
+            warnItem.indentationLevel = 2
+            if let img = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil) {
+                warnItem.image = img
+            }
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            warnItem.attributedTitle = NSAttributedString(string: warnItem.title, attributes: attrs)
+            menu.addItem(warnItem)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -274,6 +299,43 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         menu.addItem(ledItem)
 
+        // MIDI Settings
+        let midiMenu = NSMenu()
+        midiMenu.autoenablesItems = false
+
+        // CC Number picker
+        let ccHeader = NSMenuItem(title: "CC Number", action: nil, keyEquivalent: "")
+        ccHeader.isEnabled = false
+        midiMenu.addItem(ccHeader)
+        for (label, cc): (String, UInt8) in [("CC 1 — Mod Wheel", 1), ("CC 7 — Volume", 7), ("CC 11 — Expression", 11), ("CC 74 — Filter", 74)] {
+            let item = NSMenuItem(title: label, action: #selector(midiCCChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = Int(cc)
+            if midiController.ccNumber == cc { item.state = .on }
+            midiMenu.addItem(item)
+        }
+
+        midiMenu.addItem(NSMenuItem.separator())
+
+        // Channel picker
+        let chHeader = NSMenuItem(title: "Channel", action: nil, keyEquivalent: "")
+        chHeader.isEnabled = false
+        midiMenu.addItem(chHeader)
+        for ch: UInt8 in [1, 2, 10, 16] {
+            let item = NSMenuItem(title: "Ch \(ch)", action: #selector(midiChannelChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = Int(ch)
+            if midiController.channel == ch - 1 { item.state = .on }
+            midiMenu.addItem(item)
+        }
+
+        let midiItem = NSMenuItem(title: "MIDI Settings", action: nil, keyEquivalent: "")
+        midiItem.submenu = midiMenu
+        if let img = NSImage(systemSymbolName: "pianokeys", accessibilityDescription: nil) {
+            midiItem.image = img
+        }
+        menu.addItem(midiItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Launch at Login toggle
@@ -360,6 +422,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     @objc private func switchAudioDevice(_ sender: NSMenuItem) {
         let deviceID = AudioDeviceID(sender.tag)
         volumeController.setActiveDevice(deviceID)
+        // Remember this preference: "when current default is X, use device Y"
+        let defaultID = volumeController.allOutputDevices.first(where: {
+            // Find the actual system default (before our redirect)
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var sysDefault = AudioDeviceID(kAudioObjectUnknown)
+            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &sysDefault)
+            return $0.deviceID == sysDefault
+        })?.uid ?? ""
+        if !defaultID.isEmpty {
+            var prefs = UserDefaults.standard.dictionary(forKey: "powermate.deviceRouting") as? [String: String] ?? [:]
+            let targetUID = volumeController.allOutputDevices.first(where: { $0.deviceID == deviceID })?.uid ?? ""
+            if !targetUID.isEmpty {
+                prefs[defaultID] = targetUID
+                UserDefaults.standard.set(prefs, forKey: "powermate.deviceRouting")
+                NSLog("Audio: remembered routing %@ -> %@", defaultID, targetUID)
+            }
+        }
         NSLog("Audio device switched to ID %d", deviceID)
         updateLEDForLevel()
         refreshMenu()
@@ -395,6 +479,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if let value = sender.representedObject as? Float {
             stepSize = value
         }
+        refreshMenu()
+    }
+
+    @objc private func midiCCChanged(_ sender: NSMenuItem) {
+        midiController.ccNumber = UInt8(sender.tag)
+        NSLog("MIDI: CC number changed to %d", sender.tag)
+        refreshMenu()
+    }
+
+    @objc private func midiChannelChanged(_ sender: NSMenuItem) {
+        midiController.channel = UInt8(sender.tag - 1)  // menu shows 1-based, MIDI is 0-based
+        NSLog("MIDI: channel changed to %d", sender.tag)
         refreshMenu()
     }
 
@@ -584,9 +680,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         
         let actions = [
             ("Turn knob", "Adjust volume or brightness"),
-            ("Press down", "Mute audio or sleep display"),
-            ("Double-tap", "Snap to preset (20% vol / dim)"),
-            ("Press & hold", "Switch between Volume & Brightness")
+            ("Press down", "Snap to preset level (toggle)"),
+            ("Double-tap", "Mute audio or sleep display"),
+            ("Press & hold", "Cycle modes (Vol / Bright / MIDI)")
         ]
         
         for (action, desc) in actions {
@@ -720,6 +816,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             level = volumeController.isMuted() ? 0 : volumeController.getVolume()
         case .brightness:
             level = brightnessController.getCurrentBrightness()
+        case .midi:
+            level = midiController.ccLevel
         case .custom:
             level = 0.5
         }
@@ -748,8 +846,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         switch currentMode {
         case .volume:
             volumeController.adjustVolume(by: adjustment)
+            osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
         case .brightness:
+            brightnessController.updateTargetDisplay()
             brightnessController.adjustBrightness(by: adjustment)
+            osd.showBrightness(level: brightnessController.getCurrentBrightness())
+        case .midi:
+            midiController.adjustCC(by: adjustment)
         case .custom:
             break
         }
@@ -761,9 +864,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         NSLog("Button: single press [%@]", currentMode.rawValue)
         switch currentMode {
         case .volume:
-            volumeController.toggleMute()
+            // Tap = snap to preset (20%), tap again = restore
+            if let saved = volumeBeforeSnap {
+                volumeController.setVolume(saved)
+                volumeBeforeSnap = nil
+                NSLog("Volume: restored to %.0f%%", saved * 100)
+            } else {
+                volumeBeforeSnap = volumeController.getVolume()
+                volumeController.setVolume(volumeSnapValue)
+                NSLog("Volume: snapped to %.0f%%", volumeSnapValue * 100)
+            }
+            osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
+
         case .brightness:
-            brightnessController.sleepDisplay()
+            // Tap = snap to night mode (15%), tap again = restore
+            if let saved = brightnessBeforeSnap {
+                brightnessController.setBrightness(saved)
+                brightnessBeforeSnap = nil
+                NSLog("Brightness: restored to %.0f%%", saved * 100)
+            } else {
+                brightnessBeforeSnap = brightnessController.getCurrentBrightness()
+                brightnessController.setBrightness(brightnessSnapValue)
+                NSLog("Brightness: night mode %.0f%%", brightnessSnapValue * 100)
+            }
+            osd.showBrightness(level: brightnessController.getCurrentBrightness())
+
+        case .midi:
+            midiController.toggleNote()
         case .custom:
             break
         }
@@ -775,29 +902,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         NSLog("Button: double tap [%@]", currentMode.rawValue)
         switch currentMode {
         case .volume:
-            // Toggle snap-to-value: first double-tap snaps to 20%, second restores
-            if let saved = volumeBeforeSnap {
-                volumeController.setVolume(saved)
-                volumeBeforeSnap = nil
-                NSLog("Volume: restored to %.0f%%", saved * 100)
-            } else {
-                volumeBeforeSnap = volumeController.getVolume()
-                volumeController.setVolume(volumeSnapValue)
-                NSLog("Volume: snapped to %.0f%%", volumeSnapValue * 100)
-            }
-
+            volumeController.toggleMute()
+            osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
         case .brightness:
-            // Toggle night mode: first double-tap dims to 15%, second restores
-            if let saved = brightnessBeforeSnap {
-                brightnessController.setBrightness(saved)
-                brightnessBeforeSnap = nil
-                NSLog("Brightness: restored to %.0f%%", saved * 100)
-            } else {
-                brightnessBeforeSnap = brightnessController.getCurrentBrightness()
-                brightnessController.setBrightness(brightnessSnapValue)
-                NSLog("Brightness: night mode %.0f%%", brightnessSnapValue * 100)
-            }
-
+            brightnessController.sleepDisplay()
+        case .midi:
+            midiController.toggleNote()
         case .custom:
             break
         }
@@ -820,6 +930,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     func audioDeviceDidChange(deviceName: String, method: VolumeControlMethod) {
         NSLog("Audio device changed to: \(deviceName) (\(method.rawValue))")
+
+        // Apply saved per-device routing preference
+        if let prefs = UserDefaults.standard.dictionary(forKey: "powermate.deviceRouting") as? [String: String],
+           let currentUID = volumeController.activeDeviceInfo?.uid,
+           let preferredUID = prefs[currentUID] {
+            // Find device with that UID
+            if let preferred = volumeController.allOutputDevices.first(where: { $0.uid == preferredUID }),
+               preferred.deviceID != volumeController.activeDeviceID {
+                NSLog("Audio: applying saved routing -> %@ (%@)", preferred.name, preferredUID)
+                volumeController.setActiveDevice(preferred.deviceID)
+            }
+        }
+
         updateLEDForLevel()
         refreshMenu()
     }
@@ -853,9 +976,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if d.object(forKey: "powermate.brightness.snapValue") != nil {
             brightnessSnapValue = d.float(forKey: "powermate.brightness.snapValue")
         }
+        // MIDI settings
+        if d.object(forKey: "powermate.midi.ccNumber") != nil {
+            midiController.ccNumber = UInt8(d.integer(forKey: "powermate.midi.ccNumber"))
+        }
+        if d.object(forKey: "powermate.midi.channel") != nil {
+            midiController.channel = UInt8(d.integer(forKey: "powermate.midi.channel"))
+        }
         // Sync launch-at-login with actual SMAppService status
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
-        NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin)
+        NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d midi=CC%d/ch%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin, midiController.ccNumber, midiController.channel + 1)
     }
 
     private func saveSettings() {
@@ -868,5 +998,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         d.set(powerMate.doubleTapInterval, forKey: "powermate.doubleTapInterval")
         d.set(volumeSnapValue, forKey: "powermate.volume.snapValue")
         d.set(brightnessSnapValue, forKey: "powermate.brightness.snapValue")
+        d.set(Int(midiController.ccNumber), forKey: "powermate.midi.ccNumber")
+        d.set(Int(midiController.channel), forKey: "powermate.midi.channel")
     }
 }

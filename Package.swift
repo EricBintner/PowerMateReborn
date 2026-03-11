@@ -23,6 +23,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AudioToolbox"),
+                .linkedFramework("CoreMIDI"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("Sparkle", .when(platforms: [.macOS]))

@@ -29,8 +29,12 @@ class BrightnessController {
 
     private(set) var method: BrightnessMethod = .none
 
+    // Multi-display: track which display we're actively controlling
+    private(set) var activeDisplayID: CGDirectDisplayID = CGMainDisplayID()
+
     init() {
         loadDisplayServices()
+        activeDisplayID = displayUnderMouse()
         detectMethod()
         installDisplayChangeListeners()
     }
@@ -51,7 +55,7 @@ class BrightnessController {
     }
 
     private func detectMethod() {
-        let displayID = CGMainDisplayID()
+        let displayID = activeDisplayID
 
         // Try DisplayServices first — works for Apple/built-in displays
         if let getter = dsGetBrightness, let setter = dsSetBrightness {
@@ -88,7 +92,7 @@ class BrightnessController {
     private func captureOriginalGamma() {
         var sampleCount: UInt32 = 0
         let result = CGGetDisplayTransferByTable(
-            CGMainDisplayID(), 256,
+            activeDisplayID, 256,
             &originalGammaRed, &originalGammaGreen, &originalGammaBlue,
             &sampleCount)
         gammaTableCaptured = (result == .success && sampleCount > 0)
@@ -102,7 +106,7 @@ class BrightnessController {
     func getCurrentBrightness() -> Float {
         switch method {
         case .displayServices:
-            return dsGetBrightness?(CGMainDisplayID()) ?? 0.5
+            return dsGetBrightness?(activeDisplayID) ?? 0.5
         case .gamma:
             return gammaLevel
         case .none:
@@ -115,7 +119,7 @@ class BrightnessController {
 
         switch method {
         case .displayServices:
-            dsSetBrightness?(CGMainDisplayID(), clamped)
+            dsSetBrightness?(activeDisplayID, clamped)
 
         case .gamma:
             gammaLevel = clamped
@@ -148,9 +152,41 @@ class BrightnessController {
     /// Restore original gamma on quit
     func restoreGamma() {
         if method == .gamma && gammaTableCaptured {
-            CGSetDisplayTransferByTable(CGMainDisplayID(), 256,
+            CGSetDisplayTransferByTable(activeDisplayID, 256,
                                         originalGammaRed, originalGammaGreen, originalGammaBlue)
         }
+    }
+
+    /// Update the target display to whichever screen the mouse cursor is on.
+    /// Call this before adjusting brightness to target the correct monitor.
+    func updateTargetDisplay() {
+        let newID = displayUnderMouse()
+        guard newID != activeDisplayID else { return }
+
+        // Restore gamma on the old display before switching
+        if method == .gamma && gammaTableCaptured && gammaLevel < 1.0 {
+            CGSetDisplayTransferByTable(activeDisplayID, 256,
+                                        originalGammaRed, originalGammaGreen, originalGammaBlue)
+        }
+
+        activeDisplayID = newID
+        gammaLevel = 1.0
+        detectMethod()
+        NSLog("Brightness: switched target to display %d", activeDisplayID)
+    }
+
+    /// The name of the active display (for UI)
+    var activeDisplayName: String {
+        if CGDisplayIsBuiltin(activeDisplayID) != 0 { return "Built-in" }
+        // Try to get a name from IOKit
+        let info = CoreGraphics.CGDisplayCopyDisplayMode(activeDisplayID)
+        let vendor = CGDisplayVendorNumber(activeDisplayID)
+        let model = CGDisplayModelNumber(activeDisplayID)
+        let _ = info // consume unused
+        if vendor == 0x1E6D { return "LG Display" }
+        if vendor == 0x10AC { return "Dell Display" }
+        if vendor == 0x0610 { return "Apple Display" }
+        return "Display \(model)"
     }
 
     // MARK: - Display Change Listeners
@@ -201,6 +237,19 @@ class BrightnessController {
 
     // MARK: - Gamma Implementation
 
+    private func displayUnderMouse() -> CGDirectDisplayID {
+        let mouseLocation = NSEvent.mouseLocation
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        // Convert from bottom-left (AppKit) to top-left (CG) coordinates
+        if let screen = NSScreen.screens.first {
+            let cgPoint = CGPoint(x: mouseLocation.x, y: screen.frame.height - mouseLocation.y)
+            CGGetDisplaysWithPoint(cgPoint, 16, &displayIDs, &count)
+            if count > 0 { return displayIDs[0] }
+        }
+        return CGMainDisplayID()
+    }
+
     private func applyGamma(_ level: Float) {
         guard gammaTableCaptured else { return }
 
@@ -219,7 +268,7 @@ class BrightnessController {
             scaledBlue[i]  = originalGammaBlue[i]  * factor
         }
 
-        CGSetDisplayTransferByTable(CGMainDisplayID(), 256,
+        CGSetDisplayTransferByTable(activeDisplayID, 256,
                                     scaledRed, scaledGreen, scaledBlue)
     }
 }
