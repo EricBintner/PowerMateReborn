@@ -260,6 +260,28 @@ class VolumeController {
         return volumeMethod.isSoftware
     }
 
+    /// Manually switch to a specific audio device
+    func setActiveDevice(_ deviceID: AudioDeviceID) {
+        guard let dev = allOutputDevices.first(where: { $0.deviceID == deviceID }) else {
+            NSLog("Audio: device %d not found", deviceID)
+            return
+        }
+        removeVolumeListeners()
+        activeDeviceID = deviceID
+        activeDeviceInfo = dev
+        volumeMethod = dev.bestVolumeMethod
+        if volumeMethod == .softwareVolume {
+            softwareLevel = 0.75
+            softwareMuted = false
+        }
+        simulatedMute = false
+        installVolumeListeners()
+        NSLog("Audio: manually switched to %d \"%@\" method=%@", deviceID, dev.name, volumeMethod.rawValue)
+        DispatchQueue.main.async {
+            self.delegate?.audioDeviceDidChange(deviceName: dev.name, method: self.volumeMethod)
+        }
+    }
+
     // MARK: - Device Enumeration (A4)
 
     /// Refresh all devices and re-detect capabilities

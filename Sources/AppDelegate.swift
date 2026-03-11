@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import Foundation
 
 // MARK: - Knob Modes
@@ -99,102 +100,91 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        // Connection status
-        let statusTitle = powerMate.isConnected ? "[*] PowerMate Connected" : "[ ] PowerMate Disconnected"
+        // --- Connection status (label only) ---
+        let connected = powerMate.isConnected
+        let statusTitle = connected ? "[*] PowerMate Connected" : "[ ] PowerMate Not Connected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        // Current mode indicator
-        let modeItem = NSMenuItem(title: "Mode: \(currentMode.rawValue)", action: nil, keyEquivalent: "")
-        modeItem.isEnabled = false
-        if let img = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil) {
-            modeItem.image = img
+        // --- Mode: clickable to switch ---
+        for mode in KnobMode.allCases {
+            guard enabledModes.contains(mode) else { continue }
+            let isCurrent = (mode == currentMode)
+            let prefix = isCurrent ? ">> " : "     "
+            let item = NSMenuItem(title: "\(prefix)\(mode.rawValue)", action: #selector(switchToMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            if let img = NSImage(systemSymbolName: mode.icon, accessibilityDescription: nil) {
+                item.image = img
+            }
+            if isCurrent { item.state = .on }
+            menu.addItem(item)
         }
-        menu.addItem(modeItem)
 
-        let hintItem = NSMenuItem(title: "  Press: action | 2x tap: snap | Hold: mode", action: nil, keyEquivalent: "")
+        let hintItem = NSMenuItem(title: "  Press: action | 2x tap: snap | Hold: cycle", action: nil, keyEquivalent: "")
         hintItem.isEnabled = false
         menu.addItem(hintItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        // Level display based on mode
-        switch currentMode {
-        case .volume:
-            let vol = volumeController.getVolume()
-            let volItem = NSMenuItem(title: "Volume: \(Int(vol * 100))%", action: nil, keyEquivalent: "")
-            volItem.isEnabled = false
-            volItem.tag = 100
-            menu.addItem(volItem)
+        // --- Volume section (always visible) ---
+        let vol = volumeController.getVolume()
+        let volLabel = NSMenuItem(title: "Volume: \(Int(vol * 100))%", action: nil, keyEquivalent: "")
+        volLabel.isEnabled = false
+        volLabel.tag = 100
+        menu.addItem(volLabel)
 
-            let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Muted [on]" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
-            muteItem.target = self
-            menu.addItem(muteItem)
+        let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Unmute" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
+        muteItem.target = self
+        menu.addItem(muteItem)
 
-            // Audio device info
-            let deviceName = volumeController.activeDeviceName
-            let method = volumeController.volumeMethod.rawValue
-            let isSW = volumeController.isSoftwareVolume
-            let deviceTag = isSW ? "SW" : "HW"
-            let deviceInfoItem = NSMenuItem(title: "  [\(deviceTag)] \(deviceName) (\(method))", action: nil, keyEquivalent: "")
-            deviceInfoItem.isEnabled = false
-            menu.addItem(deviceInfoItem)
-            if isSW {
-                let swNote = NSMenuItem(title: "  (i) No native volume -- using software control", action: nil, keyEquivalent: "")
-                swNote.isEnabled = false
-                menu.addItem(swNote)
-            }
-
-        case .brightness:
-            let br = brightnessController.getCurrentBrightness()
-            let brItem = NSMenuItem(title: "Brightness: \(Int(br * 100))%", action: nil, keyEquivalent: "")
-            brItem.isEnabled = false
-            brItem.tag = 100
-            menu.addItem(brItem)
-
-            let methodItem = NSMenuItem(title: "  [\(brightnessController.method.rawValue)] \(brightnessController.isAvailable ? "" : "(!) Unavailable")", action: nil, keyEquivalent: "")
-            methodItem.isEnabled = false
-            menu.addItem(methodItem)
-
-        case .custom:
-            let customItem = NSMenuItem(title: "Custom mode (coming soon)", action: nil, keyEquivalent: "")
-            customItem.isEnabled = false
-            menu.addItem(customItem)
-        }
+        let deviceTag = volumeController.isSoftwareVolume ? "SW" : "HW"
+        let deviceInfo = NSMenuItem(title: "  [\(deviceTag)] \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))", action: nil, keyEquivalent: "")
+        deviceInfo.isEnabled = false
+        menu.addItem(deviceInfo)
 
         menu.addItem(NSMenuItem.separator())
 
-        // Audio device picker submenu (A9)
+        // --- Brightness section (always visible) ---
+        let br = brightnessController.getCurrentBrightness()
+        let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%", action: nil, keyEquivalent: "")
+        brLabel.isEnabled = false
+        brLabel.tag = 101
+        menu.addItem(brLabel)
+
+        let brMethod = NSMenuItem(title: "  [\(brightnessController.method.rawValue)]", action: nil, keyEquivalent: "")
+        brMethod.isEnabled = false
+        menu.addItem(brMethod)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // --- Audio Devices submenu (clickable to switch) ---
         let deviceMenu = NSMenu()
+        deviceMenu.autoenablesItems = false
         let defaultID = volumeController.activeDeviceID
         for dev in volumeController.allOutputDevices {
             let isActive = dev.deviceID == defaultID
-            let prefix = isActive ? "[*] " : "    "
             let volIcon = (dev.hasVolumeScalar || dev.hasChannelVolume || dev.hasVirtualMaster) ? ">>" : "--"
             let item = NSMenuItem(
-                title: "\(prefix)\(volIcon) \(dev.name) — \(dev.transportName)",
-                action: nil,
+                title: "\(volIcon) \(dev.name) -- \(dev.transportName)",
+                action: #selector(switchAudioDevice(_:)),
                 keyEquivalent: ""
             )
-            item.isEnabled = false
-            if isActive {
-                let methodNote = NSMenuItem(title: "      Control: \(dev.bestVolumeMethod.rawValue)", action: nil, keyEquivalent: "")
-                methodNote.isEnabled = false
-                deviceMenu.addItem(item)
-                deviceMenu.addItem(methodNote)
-            } else {
-                deviceMenu.addItem(item)
-            }
+            item.target = self
+            item.tag = Int(dev.deviceID)
+            if isActive { item.state = .on }
+            deviceMenu.addItem(item)
         }
         let deviceItem = NSMenuItem(title: "Audio Devices", action: nil, keyEquivalent: "")
         deviceItem.submenu = deviceMenu
         menu.addItem(deviceItem)
 
-        // Enabled modes submenu
+        // --- Enabled Modes submenu ---
         let modesMenu = NSMenu()
+        modesMenu.autoenablesItems = false
         for mode in KnobMode.allCases {
             let item = NSMenuItem(title: mode.rawValue, action: #selector(toggleMode(_:)), keyEquivalent: "")
             item.target = self
@@ -209,23 +199,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         modesItem.submenu = modesMenu
         menu.addItem(modesItem)
 
-        // Sensitivity submenu
+        // --- Sensitivity submenu ---
         let sensitivityMenu = NSMenu()
+        sensitivityMenu.autoenablesItems = false
         for (label, value) in [("Low (1%)", Float(0.01)), ("Medium (3%)", Float(0.03)), ("High (5%)", Float(0.05)), ("Very High (8%)", Float(0.08))] {
             let item = NSMenuItem(title: label, action: #selector(sensitivityChanged(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = value
-            if abs(stepSize - value) < 0.001 {
-                item.state = .on
-            }
+            if abs(stepSize - value) < 0.001 { item.state = .on }
             sensitivityMenu.addItem(item)
         }
         let sensitivityItem = NSMenuItem(title: "Sensitivity", action: nil, keyEquivalent: "")
         sensitivityItem.submenu = sensitivityMenu
         menu.addItem(sensitivityItem)
 
-        // LED submenu
+        // --- LED submenu ---
         let ledMenu = NSMenu()
+        ledMenu.autoenablesItems = false
         let ledFollowItem = NSMenuItem(title: "Follow Level", action: #selector(ledFollowLevel(_:)), keyEquivalent: "")
         ledFollowItem.target = self
         ledFollowItem.state = ledFollowsLevel ? .on : .off
@@ -294,6 +284,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     }
 
     // MARK: - Menu Actions
+
+    @objc private func switchToMode(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let mode = KnobMode(rawValue: rawValue) else { return }
+        currentMode = mode
+        NSLog("Mode switched to: %@", mode.rawValue)
+        updateStatusDisplay()
+        updateLEDForLevel()
+        refreshMenu()
+    }
+
+    @objc private func switchAudioDevice(_ sender: NSMenuItem) {
+        let deviceID = AudioDeviceID(sender.tag)
+        volumeController.setActiveDevice(deviceID)
+        NSLog("Audio device switched to ID %d", deviceID)
+        updateLEDForLevel()
+        refreshMenu()
+    }
 
     @objc private func toggleMuteClicked() {
         volumeController.toggleMute()
@@ -409,16 +417,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         updateLEDForLevel()
 
-        // Live-update menu if open
-        if let levelItem = statusItem.menu?.item(withTag: 100) {
-            switch currentMode {
-            case .volume:
-                levelItem.title = "Volume: \(Int(volumeController.getVolume() * 100))%"
-            case .brightness:
-                levelItem.title = "Brightness: \(Int(brightnessController.getCurrentBrightness() * 100))%"
-            case .custom:
-                break
-            }
+        // Live-update menu if open (both sections always visible)
+        if let volItem = statusItem.menu?.item(withTag: 100) {
+            volItem.title = "Volume: \(Int(volumeController.getVolume() * 100))%"
+        }
+        if let brItem = statusItem.menu?.item(withTag: 101) {
+            brItem.title = "Brightness: \(Int(brightnessController.getCurrentBrightness() * 100))%"
         }
     }
 

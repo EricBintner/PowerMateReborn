@@ -1,3 +1,0 @@
-#!/bin/bash
-DIR="$(dirname "$0")"
-exec "$DIR/PowerMateDriver-bin" > /tmp/powermate.log 2>&1
