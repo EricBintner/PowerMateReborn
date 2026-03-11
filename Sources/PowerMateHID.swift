@@ -10,8 +10,9 @@ protocol PowerMateDelegate: AnyObject {
     func powerMateDidConnect()
     func powerMateDidDisconnect()
     func powerMateDidRotate(delta: Int)
-    func powerMateButtonPressed()       // short press (< longPressThreshold)
-    func powerMateButtonLongPressed()   // long press (>= longPressThreshold)
+    func powerMateButtonPressed()       // single press
+    func powerMateButtonDoubleTapped()  // two presses within doubleTapInterval
+    func powerMateButtonLongPressed()   // hold >= longPressThreshold
 }
 
 class PowerMateHID {
@@ -21,11 +22,14 @@ class PowerMateHID {
     private var device: IOHIDDevice?
     private var lastButtonState: Bool = false
 
-    // Long press detection
-    var longPressThreshold: TimeInterval = 0.5  // seconds
+    // Gesture detection
+    var longPressThreshold: TimeInterval = 0.5   // seconds
+    var doubleTapInterval: TimeInterval = 0.3    // max gap between taps
     private var buttonDownTime: Date?
     private var longPressTimer: Timer?
     private var longPressFired: Bool = false
+    private var tapCount: Int = 0
+    private var singleTapTimer: Timer?
 
     // LED state
     private(set) var ledBrightness: UInt8 = 0
@@ -175,16 +179,24 @@ class PowerMateHID {
         }
     }
 
-    // MARK: - Long Press Detection
+    // MARK: - Gesture Detection
 
     private func onButtonDown() {
         buttonDownTime = Date()
         longPressFired = false
 
+        // Cancel pending single-tap timer (we got another press)
+        singleTapTimer?.invalidate()
+        singleTapTimer = nil
+
+        // Start long-press timer
         longPressTimer?.invalidate()
         longPressTimer = Timer.scheduledTimer(withTimeInterval: longPressThreshold, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             self.longPressFired = true
+            self.tapCount = 0
+            self.singleTapTimer?.invalidate()
+            self.singleTapTimer = nil
             self.delegate?.powerMateButtonLongPressed()
         }
     }
@@ -193,8 +205,28 @@ class PowerMateHID {
         longPressTimer?.invalidate()
         longPressTimer = nil
 
-        if !longPressFired {
-            delegate?.powerMateButtonPressed()
+        guard !longPressFired else {
+            buttonDownTime = nil
+            longPressFired = false
+            return
+        }
+
+        tapCount += 1
+
+        if tapCount >= 2 {
+            // Double tap detected
+            tapCount = 0
+            singleTapTimer?.invalidate()
+            singleTapTimer = nil
+            delegate?.powerMateButtonDoubleTapped()
+        } else {
+            // First tap — wait for possible second tap
+            singleTapTimer?.invalidate()
+            singleTapTimer = Timer.scheduledTimer(withTimeInterval: doubleTapInterval, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                self.tapCount = 0
+                self.delegate?.powerMateButtonPressed()
+            }
         }
 
         buttonDownTime = nil

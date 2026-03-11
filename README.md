@@ -22,20 +22,14 @@ Since the official drivers haven't worked in years, this is a native Swift menu 
 - **Identifiers:** Vendor ID `0x077d`, Product ID `0x0410`
 - **OS:** macOS Sequoia+ (Optimized for Apple Silicon)
 
-## Building from Source
+## Installation
 
-This project uses the Swift Package Manager.
+1. Download the latest `.dmg` release from the [Releases](https://github.com/EricBintner/PowerMateReborn/releases) page.
+2. Open the `.dmg` file.
+3. Drag the `PowerMateReborn` app to your Applications folder.
+4. Launch the app from your Applications folder.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/PowerMateReborn.git
-   cd PowerMateReborn
-   ```
-2. Build the package:
-   ```bash
-   swift build
-   ```
-3. Run the executable or open `Package.swift` in Xcode to run the menu bar app.
+*Note: You may need to grant Accessibility permissions in System Settings > Privacy & Security > Accessibility for the app to function properly.*
 
 ## Project Structure & Roadmap
 

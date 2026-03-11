@@ -39,7 +39,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var stepSize: Float = 0.03  // 3% per rotation tick
     private var ledFollowsLevel: Bool = true
 
+    // Snap-to-value state (double-tap toggles)
+    private var volumeBeforeSnap: Float?
+    private var brightnessBeforeSnap: Float?
+    private var volumeSnapValue: Float = 0.20      // 20%
+    private var brightnessSnapValue: Float = 0.15  // 15% (night mode)
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        loadSettings()
         setupMenuBar()
         volumeController.delegate = self
         powerMate.delegate = self
@@ -48,8 +55,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        brightnessController.restoreGamma()
         powerMate.setLEDBrightness(0)
         powerMate.stop()
+        saveSettings()
     }
 
     // MARK: - Menu Bar
@@ -106,7 +115,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         menu.addItem(modeItem)
 
-        let hintItem = NSMenuItem(title: "  Long-press knob to switch modes", action: nil, keyEquivalent: "")
+        let hintItem = NSMenuItem(title: "  Press: action | 2x tap: snap | Hold: mode", action: nil, keyEquivalent: "")
         hintItem.isEnabled = false
         menu.addItem(hintItem)
 
@@ -146,11 +155,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             brItem.tag = 100
             menu.addItem(brItem)
 
-            if !brightnessController.isAvailable {
-                let warnItem = NSMenuItem(title: "  (!) Brightness control unavailable", action: nil, keyEquivalent: "")
-                warnItem.isEnabled = false
-                menu.addItem(warnItem)
-            }
+            let methodItem = NSMenuItem(title: "  [\(brightnessController.method.rawValue)] \(brightnessController.isAvailable ? "" : "(!) Unavailable")", action: nil, keyEquivalent: "")
+            methodItem.isEnabled = false
+            menu.addItem(methodItem)
 
         case .custom:
             let customItem = NSMenuItem(title: "Custom mode (coming soon)", action: nil, keyEquivalent: "")
@@ -394,14 +401,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         switch currentMode {
         case .volume:
             volumeController.adjustVolume(by: adjustment)
-            let vol = volumeController.getVolume()
-            NSLog("Volume: \(Int(vol * 100))%% (delta: \(delta))")
-
         case .brightness:
             brightnessController.adjustBrightness(by: adjustment)
-            let br = brightnessController.getCurrentBrightness()
-            NSLog("Brightness: \(Int(br * 100))%% (delta: \(delta))")
-
         case .custom:
             NSLog("Custom mode rotation: \(delta)")
         }
@@ -422,23 +423,55 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     }
 
     func powerMateButtonPressed() {
-        NSLog("PowerMate short press — mode action")
+        NSLog("Button: single press [%@]", currentMode.rawValue)
         switch currentMode {
         case .volume:
             volumeController.toggleMute()
-            NSLog("Mute toggled: \(volumeController.isMuted())")
         case .brightness:
             brightnessController.sleepDisplay()
-            NSLog("Display sleep triggered")
         case .custom:
-            NSLog("Custom button action (not yet implemented)")
+            break
+        }
+        updateLEDForLevel()
+        refreshMenu()
+    }
+
+    func powerMateButtonDoubleTapped() {
+        NSLog("Button: double tap [%@]", currentMode.rawValue)
+        switch currentMode {
+        case .volume:
+            // Toggle snap-to-value: first double-tap snaps to 20%, second restores
+            if let saved = volumeBeforeSnap {
+                volumeController.setVolume(saved)
+                volumeBeforeSnap = nil
+                NSLog("Volume: restored to %.0f%%", saved * 100)
+            } else {
+                volumeBeforeSnap = volumeController.getVolume()
+                volumeController.setVolume(volumeSnapValue)
+                NSLog("Volume: snapped to %.0f%%", volumeSnapValue * 100)
+            }
+
+        case .brightness:
+            // Toggle night mode: first double-tap dims to 15%, second restores
+            if let saved = brightnessBeforeSnap {
+                brightnessController.setBrightness(saved)
+                brightnessBeforeSnap = nil
+                NSLog("Brightness: restored to %.0f%%", saved * 100)
+            } else {
+                brightnessBeforeSnap = brightnessController.getCurrentBrightness()
+                brightnessController.setBrightness(brightnessSnapValue)
+                NSLog("Brightness: night mode %.0f%%", brightnessSnapValue * 100)
+            }
+
+        case .custom:
+            break
         }
         updateLEDForLevel()
         refreshMenu()
     }
 
     func powerMateButtonLongPressed() {
-        NSLog("PowerMate long press — cycling mode")
+        NSLog("Button: long press -> cycle mode")
         cycleMode()
     }
 
@@ -456,5 +489,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         NSLog("Audio device changed to: \(deviceName) (\(method.rawValue))")
         updateLEDForLevel()
         refreshMenu()
+    }
+
+    // MARK: - Settings Persistence
+
+    private func loadSettings() {
+        let d = UserDefaults.standard
+        if let mode = d.string(forKey: "powermate.currentMode"), let m = KnobMode(rawValue: mode) {
+            currentMode = m
+        }
+        if let modes = d.array(forKey: "powermate.enabledModes") as? [String] {
+            let parsed = modes.compactMap { KnobMode(rawValue: $0) }
+            if !parsed.isEmpty { enabledModes = parsed }
+        }
+        if d.object(forKey: "powermate.stepSize") != nil {
+            stepSize = d.float(forKey: "powermate.stepSize")
+        }
+        if d.object(forKey: "powermate.ledFollowsLevel") != nil {
+            ledFollowsLevel = d.bool(forKey: "powermate.ledFollowsLevel")
+        }
+        if d.object(forKey: "powermate.longPressThreshold") != nil {
+            powerMate.longPressThreshold = d.double(forKey: "powermate.longPressThreshold")
+        }
+        if d.object(forKey: "powermate.doubleTapInterval") != nil {
+            powerMate.doubleTapInterval = d.double(forKey: "powermate.doubleTapInterval")
+        }
+        if d.object(forKey: "powermate.volume.snapValue") != nil {
+            volumeSnapValue = d.float(forKey: "powermate.volume.snapValue")
+        }
+        if d.object(forKey: "powermate.brightness.snapValue") != nil {
+            brightnessSnapValue = d.float(forKey: "powermate.brightness.snapValue")
+        }
+        NSLog("Settings: mode=%@ step=%.0f%% led=%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel)
+    }
+
+    private func saveSettings() {
+        let d = UserDefaults.standard
+        d.set(currentMode.rawValue, forKey: "powermate.currentMode")
+        d.set(enabledModes.map { $0.rawValue }, forKey: "powermate.enabledModes")
+        d.set(stepSize, forKey: "powermate.stepSize")
+        d.set(ledFollowsLevel, forKey: "powermate.ledFollowsLevel")
+        d.set(powerMate.longPressThreshold, forKey: "powermate.longPressThreshold")
+        d.set(powerMate.doubleTapInterval, forKey: "powermate.doubleTapInterval")
+        d.set(volumeSnapValue, forKey: "powermate.volume.snapValue")
+        d.set(brightnessSnapValue, forKey: "powermate.brightness.snapValue")
     }
 }
