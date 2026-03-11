@@ -1,6 +1,10 @@
 # PowerMateReborn
 
-A modern, native Swift macOS driver and menu bar app to resurrect the classic Griffin PowerMate USB for Apple Silicon and macOS Sequoia+.
+![Griffin PowerMate on macOS Sequoia](images/griffin-technology-powermate-to-work-with-sequoia-v0-2ok0f592pyee1.jpg.webp)
+
+A fun weekend project to resurrect the classic Griffin PowerMate USB for modern Mac setups (Apple Silicon and macOS Sequoia+). 
+
+I had this awesome piece of hardware sitting in a drawer, and since the official drivers haven't worked in years, I decided to build a native Swift menu bar app from scratch to bring it back to life!
 
 ## Features
 

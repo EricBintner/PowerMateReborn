@@ -6,11 +6,6 @@ import IOKit.hid
 let kPowerMateVendorID:  Int = 0x077d
 let kPowerMateProductID: Int = 0x0410
 
-// HID Report structure:
-//   Input (6 bytes): [button:1bit + pad:7bits] [rotation:int8] [consumer:4bytes]
-//   Output (1 byte): LED brightness (0-255)
-//   Feature (8 bytes): LED config [brightness, pulse_speed, pulse_style, ...]
-
 protocol PowerMateDelegate: AnyObject {
     func powerMateDidConnect()
     func powerMateDidDisconnect()
@@ -84,32 +79,41 @@ class PowerMateHID {
 
     /// Set LED brightness (0-255)
     func setLEDBrightness(_ brightness: UInt8) {
-        guard let device = device else { return }
         ledBrightness = brightness
-
-        // Feature report format for static brightness:
-        // Byte 0: brightness (0-255)
-        // Byte 1: pulse speed (0 = no pulse)
-        // Byte 2: pulse style (0 = normal, 1 = solid during pulse, 2 = off during pulse)
-        // Byte 3: pulse while asleep (0 = no, 1 = yes)
-        // Byte 4: pulse while awake (0 = no, 1 = yes)
-        // Bytes 5-7: reserved
-        var report: [UInt8] = [brightness, 0, 0, 0, 0, 0, 0, 0]
-        let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 0, &report, report.count)
-        if result != kIOReturnSuccess {
-            // Fallback: try output report (single byte)
-            var outReport: [UInt8] = [brightness]
-            IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0, &outReport, outReport.count)
-        }
+        sendOutputReport(brightness)
     }
 
-    /// Set LED pulse effect
+    /// Set LED to breathe/pulse
     func setLEDPulse(speed: UInt8, brightness: UInt8 = 255) {
-        guard let device = device else { return }
         ledBrightness = brightness
+        // On macOS Sequoia, only the 1-byte HID output report reaches the device.
+        // We cannot control pulse parameters (feature SET_REPORT is unsupported
+        // by this device, and legacy USB vendor commands are dead on Sequoia).
+        // Send brightness as output report — the device may or may not pulse
+        // depending on its stored firmware state.
+        sendOutputReport(brightness)
+    }
 
-        var report: [UInt8] = [brightness, speed, 0, 0, 1, 0, 0, 0]
-        IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 0, &report, report.count)
+    // MARK: - LED Implementation
+
+    /// Send a 1-byte HID output report — the only write path that works on macOS Sequoia
+    @discardableResult
+    private func sendOutputReport(_ value: UInt8) -> Bool {
+        guard let hidDevice = device else { return false }
+        var report: [UInt8] = [value]
+        let result = IOHIDDeviceSetReport(hidDevice, kIOHIDReportTypeOutput, 0, &report, report.count)
+        return result == kIOReturnSuccess
+    }
+
+    /// Visual startup test: flash LED off->on to confirm communication
+    private func runStartupLEDTest() {
+        NSLog("LED: startup test — flash off->on")
+        sendOutputReport(0)       // LED off
+        usleep(300_000)           // 300ms
+        sendOutputReport(255)     // LED full bright
+        usleep(300_000)           // 300ms
+        sendOutputReport(0)       // LED off
+        usleep(200_000)           // 200ms
     }
 
     // MARK: - Private
@@ -127,6 +131,11 @@ class PowerMateHID {
         let reportSize = 6
         let reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportSize)
         IOHIDDeviceRegisterInputReportCallback(hidDevice, reportBuffer, reportSize, inputCallback, selfPtr)
+
+        // Run startup LED flash test (blocks briefly, runs on callback thread)
+        runStartupLEDTest()
+
+        NSLog("PowerMate device matched")
 
         DispatchQueue.main.async {
             self.delegate?.powerMateDidConnect()

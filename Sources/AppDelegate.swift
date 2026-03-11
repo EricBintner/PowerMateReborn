@@ -56,6 +56,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        if let button = statusItem.button {
+            button.title = "PM"
+            button.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+            NSLog("Menu: statusItem created, button frame=%@", NSStringFromRect(button.frame))
+        } else {
+            NSLog("Menu: ERROR - statusItem.button is nil!")
+        }
+
         updateStatusDisplay()
         buildMenu()
     }
@@ -64,19 +73,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         guard let button = statusItem.button else { return }
 
         if !powerMate.isConnected {
-            button.image = NSImage(systemSymbolName: "dial.medium", accessibilityDescription: "PowerMate Disconnected")
-            return
+            button.title = "PM:--"
+            button.image = nil
+        } else {
+            switch currentMode {
+            case .volume:     button.title = "PM:VOL"
+            case .brightness: button.title = "PM:BRT"
+            case .custom:     button.title = "PM:CUS"
+            }
+            button.image = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil)
         }
-
-        // Show mode-specific icon
-        button.image = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: "PowerMate: \(currentMode.rawValue)")
+        NSLog("Menu: title='%@' connected=%d", button.title, powerMate.isConnected)
     }
 
     private func buildMenu() {
         let menu = NSMenu()
+        menu.autoenablesItems = false
 
         // Connection status
-        let statusTitle = powerMate.isConnected ? "✓ PowerMate Connected" : "✗ PowerMate Disconnected"
+        let statusTitle = powerMate.isConnected ? "[*] PowerMate Connected" : "[ ] PowerMate Disconnected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
@@ -106,16 +121,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             volItem.tag = 100
             menu.addItem(volItem)
 
-            let muteItem = NSMenuItem(title: volumeController.isMuted() ? "✓ Muted" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
+            let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Muted [on]" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
             muteItem.target = self
             menu.addItem(muteItem)
 
             // Audio device info
             let deviceName = volumeController.activeDeviceName
             let method = volumeController.volumeMethod.rawValue
-            let deviceInfoItem = NSMenuItem(title: "  🔊 \(deviceName) (\(method))", action: nil, keyEquivalent: "")
+            let isSW = volumeController.isSoftwareVolume
+            let deviceTag = isSW ? "SW" : "HW"
+            let deviceInfoItem = NSMenuItem(title: "  [\(deviceTag)] \(deviceName) (\(method))", action: nil, keyEquivalent: "")
             deviceInfoItem.isEnabled = false
             menu.addItem(deviceInfoItem)
+            if isSW {
+                let swNote = NSMenuItem(title: "  (i) No native volume -- using software control", action: nil, keyEquivalent: "")
+                swNote.isEnabled = false
+                menu.addItem(swNote)
+            }
 
         case .brightness:
             let br = brightnessController.getCurrentBrightness()
@@ -125,7 +147,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             menu.addItem(brItem)
 
             if !brightnessController.isAvailable {
-                let warnItem = NSMenuItem(title: "  ⚠ Brightness control unavailable", action: nil, keyEquivalent: "")
+                let warnItem = NSMenuItem(title: "  (!) Brightness control unavailable", action: nil, keyEquivalent: "")
                 warnItem.isEnabled = false
                 menu.addItem(warnItem)
             }
@@ -143,8 +165,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let defaultID = volumeController.activeDeviceID
         for dev in volumeController.allOutputDevices {
             let isActive = dev.deviceID == defaultID
-            let prefix = isActive ? "✓ " : "   "
-            let volIcon = dev.volumeIcon
+            let prefix = isActive ? "[*] " : "    "
+            let volIcon = (dev.hasVolumeScalar || dev.hasChannelVolume || dev.hasVirtualMaster) ? ">>" : "--"
             let item = NSMenuItem(
                 title: "\(prefix)\(volIcon) \(dev.name) — \(dev.transportName)",
                 action: nil,
@@ -203,7 +225,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         ledMenu.addItem(ledFollowItem)
         ledMenu.addItem(NSMenuItem.separator())
 
-        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright)), ("Pulse", #selector(ledPulse))] {
+        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright)), ("Breathe (slow fade in/out)", #selector(ledPulse))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             ledMenu.addItem(item)
@@ -347,7 +369,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .custom:
             level = 0.5
         }
-        powerMate.setLEDBrightness(UInt8(level * 255))
+        let ledVal = UInt8(max(0, min(255, level * 255)))
+        powerMate.setLEDBrightness(ledVal)
     }
 
     // MARK: - PowerMateDelegate

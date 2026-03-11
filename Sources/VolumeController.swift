@@ -10,8 +10,19 @@ enum VolumeControlMethod: String {
     case coreAudioChannel   = "CoreAudio Channel"
     case virtualMaster      = "Virtual Master"
     case appleScript        = "AppleScript"
-    case mediaKeys          = "Media Keys"
+    case softwareVolume     = "Software Volume"
     case none               = "None"
+
+    /// True for methods that directly control hardware
+    var isNative: Bool {
+        switch self {
+        case .coreAudioMaster, .coreAudioChannel, .virtualMaster: return true
+        default: return false
+        }
+    }
+
+    /// True for the internal software gain fallback
+    var isSoftware: Bool { return self == .softwareVolume }
 }
 
 struct AudioDeviceInfo {
@@ -47,12 +58,13 @@ struct AudioDeviceInfo {
         if hasVolumeScalar && isVolumeSettable { return .coreAudioMaster }
         if hasChannelVolume { return .coreAudioChannel }
         if hasVirtualMaster { return .virtualMaster }
-        return .appleScript
+        // AppleScript and softwareVolume are determined at runtime by probing
+        return .none
     }
 
     var volumeIcon: String {
-        if hasVolumeScalar || hasChannelVolume || hasVirtualMaster { return "✅" }
-        return "❌"
+        if hasVolumeScalar || hasChannelVolume || hasVirtualMaster { return "[ok]" }
+        return "[--]"
     }
 
     var isDefault: Bool { return false } // set dynamically
@@ -75,7 +87,12 @@ class VolumeController {
     private(set) var allOutputDevices: [AudioDeviceInfo] = []
     private(set) var volumeMethod: VolumeControlMethod = .none
 
-    // Mute simulation state (A5)
+    // Software Volume state — internal gain tracker for devices without native control
+    // Like an iPhone controlling volume before sending to a powered receiver
+    private var softwareLevel: Float = 0.75
+    private var softwareMuted: Bool = false
+
+    // Mute simulation state (A5) — used by native tiers without hardware mute
     private var simulatedMute: Bool = false
     private var volumeBeforeMute: Float = 0.0
 
@@ -104,35 +121,59 @@ class VolumeController {
 
     /// Get current volume (0.0 - 1.0)
     func getVolume() -> Float {
-        if simulatedMute { return 0.0 }
         switch volumeMethod {
-        case .coreAudioMaster:  return getCoreAudioVolume(element: 0)
-        case .coreAudioChannel: return getCoreAudioChannelAverage()
-        case .virtualMaster:    return getVirtualMasterVolume()
-        case .appleScript:      return getAppleScriptVolume()
-        case .mediaKeys, .none: return 0.5
+        case .softwareVolume:
+            return softwareMuted ? 0.0 : softwareLevel
+        default:
+            if simulatedMute { return 0.0 }
+            switch volumeMethod {
+            case .coreAudioMaster:  return getCoreAudioVolume(element: 0)
+            case .coreAudioChannel: return getCoreAudioChannelAverage()
+            case .virtualMaster:    return getVirtualMasterVolume()
+            case .appleScript:      return getAppleScriptVolume()
+            case .none:             return 0.5
+            default:                return 0.5
+            }
         }
     }
 
     /// Set volume (0.0 - 1.0)
     func setVolume(_ volume: Float) {
         let clamped = max(0.0, min(1.0, volume))
-        if simulatedMute {
-            simulatedMute = false
-        }
+
         switch volumeMethod {
-        case .coreAudioMaster:  setCoreAudioVolume(clamped, element: 0)
-        case .coreAudioChannel: setCoreAudioChannelVolume(clamped)
-        case .virtualMaster:    setVirtualMasterVolume(clamped)
-        case .appleScript:      setAppleScriptVolumeThrottled(clamped)
-        case .mediaKeys, .none: break
+        case .softwareVolume:
+            softwareLevel = clamped
+            softwareMuted = false
+            // Best-effort: try AppleScript in background (may or may not work)
+            bestEffortSetVolume(clamped)
+
+        default:
+            if simulatedMute { simulatedMute = false }
+            switch volumeMethod {
+            case .coreAudioMaster:  setCoreAudioVolume(clamped, element: 0)
+            case .coreAudioChannel: setCoreAudioChannelVolume(clamped)
+            case .virtualMaster:    setVirtualMasterVolume(clamped)
+            case .appleScript:      setAppleScriptVolumeThrottled(clamped)
+            case .none:             break
+            default:                break
+            }
         }
     }
 
     /// Adjust volume by a delta (-1.0 to 1.0)
     func adjustVolume(by delta: Float) {
+        if volumeMethod == .softwareVolume {
+            if softwareMuted && delta > 0 {
+                softwareMuted = false
+            }
+            let newLevel = max(0.0, min(1.0, softwareLevel + delta))
+            softwareLevel = newLevel
+            bestEffortSetVolume(newLevel)
+            return
+        }
+
         if simulatedMute && delta > 0 {
-            // Un-mute on volume up
             simulatedMute = false
             let restored = max(0.01, volumeBeforeMute)
             setVolume(restored + delta)
@@ -144,24 +185,35 @@ class VolumeController {
 
     /// Get mute state
     func isMuted() -> Bool {
+        if volumeMethod == .softwareVolume {
+            return softwareMuted
+        }
         if simulatedMute { return true }
         guard let info = activeDeviceInfo else { return false }
         if info.hasMute && info.isMuteSettable {
             return getCoreAudioMute()
         }
-        // Check if volume is essentially zero
+        if volumeMethod == .appleScript {
+            return getAppleScriptMute()
+        }
         return getVolume() < 0.001
     }
 
-    /// Toggle mute (A5: simulation for devices without hardware mute)
+    /// Toggle mute
     func toggleMute() {
+        if volumeMethod == .softwareVolume {
+            softwareMuted.toggle()
+            bestEffortSetMute(softwareMuted)
+            return
+        }
+
         guard let info = activeDeviceInfo else { return }
         if info.hasMute && info.isMuteSettable {
             setCoreAudioMute(!getCoreAudioMute())
         } else if volumeMethod == .appleScript {
             toggleAppleScriptMute()
         } else {
-            // Mute simulation: save current volume → set to 0 → restore on un-mute
+            // Mute simulation for native tiers without hardware mute
             if simulatedMute {
                 simulatedMute = false
                 setVolume(max(0.01, volumeBeforeMute))
@@ -175,6 +227,12 @@ class VolumeController {
 
     /// Set mute state
     func setMute(_ mute: Bool) {
+        if volumeMethod == .softwareVolume {
+            softwareMuted = mute
+            bestEffortSetMute(mute)
+            return
+        }
+
         guard let info = activeDeviceInfo else { return }
         if info.hasMute && info.isMuteSettable {
             setCoreAudioMute(mute)
@@ -197,20 +255,59 @@ class VolumeController {
         return activeDeviceInfo?.name ?? "Unknown"
     }
 
+    /// Whether the current device uses software volume (for UI display)
+    var isSoftwareVolume: Bool {
+        return volumeMethod.isSoftware
+    }
+
     // MARK: - Device Enumeration (A4)
 
     /// Refresh all devices and re-detect capabilities
     func refreshAllDevices() {
         let previousDeviceID = activeDeviceID
         allOutputDevices = enumerateOutputDevices()
-        activeDeviceID = getDefaultOutputDeviceID()
-        activeDeviceInfo = probeDevice(activeDeviceID)
+        var defaultDeviceID = getDefaultOutputDeviceID()
+        var defaultDeviceInfo = probeDevice(defaultDeviceID)
+        
+        // Determine best volume method with fallback probing
+        var defaultMethod: VolumeControlMethod = .none
+        if let info = defaultDeviceInfo {
+            let native = info.bestVolumeMethod
+            if native != .none {
+                defaultMethod = native
+            } else {
+                // No native CoreAudio control — probe AppleScript
+                defaultMethod = probeAppleScriptVolume() ? .appleScript : .softwareVolume
+            }
+        }
+        
+        // FALLBACK: If default device has no NATIVE volume control, find one that does
+        // Virtual devices with AppleScript don't actually work for volume control
+        let isVirtual = defaultDeviceInfo?.transportType == kAudioDeviceTransportTypeVirtual
+        let needsFallback = defaultMethod == .softwareVolume || defaultMethod == .none || 
+                           (defaultMethod == .appleScript && isVirtual)
+        
+        if needsFallback {
+            NSLog("Audio: Default device has no native volume control (method=\(defaultMethod.rawValue), virtual=\(isVirtual)), searching for fallback...")
+            for dev in allOutputDevices {
+                if dev.bestVolumeMethod != .none {
+                    defaultDeviceID = dev.deviceID
+                    defaultDeviceInfo = dev
+                    defaultMethod = dev.bestVolumeMethod
+                    NSLog("Audio: Fallback to device \(dev.deviceID) '\(dev.name)' with \(defaultMethod.rawValue)")
+                    break
+                }
+            }
+        }
+        
+        activeDeviceID = defaultDeviceID
+        activeDeviceInfo = defaultDeviceInfo
+        volumeMethod = defaultMethod
 
-        // Determine best volume method
-        if let info = activeDeviceInfo {
-            volumeMethod = info.bestVolumeMethod
-        } else {
-            volumeMethod = .appleScript
+        // When switching TO software volume, initialize from AppleScript if possible
+        if volumeMethod == .softwareVolume && previousDeviceID != activeDeviceID {
+            softwareLevel = 0.75
+            softwareMuted = false
         }
 
         // Install volume/mute listeners on the new active device
@@ -685,6 +782,39 @@ class VolumeController {
     }
 
     private func setAppleScriptMute(_ mute: Bool) {
+        let script = NSAppleScript(source: "set volume output muted \(mute)")
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+    }
+
+    // MARK: - AppleScript Probing
+
+    /// Test if AppleScript volume control actually works for the current default device
+    private func probeAppleScriptVolume() -> Bool {
+        let script = NSAppleScript(source: "output volume of (get volume settings)")
+        var error: NSDictionary?
+        let result = script?.executeAndReturnError(&error)
+        // Returns an integer 0-100 if it works, or "missing value" descriptor if not
+        if let desc = result {
+            // Check if it's a valid integer (not "missing value")
+            let typeCode = desc.descriptorType
+            // 'msng' = missing value (0x6D736E67)
+            if typeCode == 0x6D736E67 { return false }
+            // If we get an integer, it works
+            if desc.int32Value >= 0 { return true }
+        }
+        return false
+    }
+
+    // MARK: - Software Volume Best-Effort Output
+
+    /// Try to actually affect the output volume, but don't rely on it
+    private func bestEffortSetVolume(_ volume: Float) {
+        setAppleScriptVolumeThrottled(volume)
+    }
+
+    /// Try to actually affect the output mute, but don't rely on it
+    private func bestEffortSetMute(_ mute: Bool) {
         let script = NSAppleScript(source: "set volume output muted \(mute)")
         var error: NSDictionary?
         script?.executeAndReturnError(&error)
