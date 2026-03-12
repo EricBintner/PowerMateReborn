@@ -2,7 +2,9 @@
   <img src="images/powermate-reborn-logo.svg" alt="PowerMateReborn Logo" width="600">
 </div>
 
-![Griffin PowerMate on macOS Sequoia](images/griffin-technology-powermate-mac-os9.png)
+<div align="center">
+  <img src="images/griffin-technology-powermate-mac-os9.png" alt="PowerMate USB Device" width="600">
+</div>
 
 Resurrecting the classic Griffin PowerMate USB for modern Mac setups (Apple Silicon and macOS Sequoia+). 
 
