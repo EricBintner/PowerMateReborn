@@ -8,6 +8,12 @@ Resurrecting the classic Griffin PowerMate USB for modern Mac setups (Apple Sili
 
 Since the official drivers haven't worked in years, this is a native Swift menu bar app built from scratch to bring that awesome piece of hardware back to life.
 
+<div align="center">
+  <a href="https://github.com/EricBintner/PowerMateReborn/releases/latest">
+    <img src="https://img.shields.io/github/v/release/EricBintner/PowerMateReborn?style=for-the-badge&label=Download%20Latest&logo=apple&color=blue" alt="Download Latest Release" />
+  </a>
+</div>
+
 ## What It Does
 
 Transform your Griffin PowerMate into a dedicated media control knob for your Mac. Four modes -- Volume, Brightness, MIDI, and Custom -- let you control anything from system audio to DAW plugins to arbitrary keyboard shortcuts, all with smooth LED feedback.
