@@ -25,6 +25,8 @@ Transform your Griffin PowerMate into a dedicated media control knob for your Ma
 
 ## Features
 
+<img src="images/ui.png" align="right" width="250" alt="PowerMateReborn Menu Bar UI">
+
 ### Core Modes
 - **Volume Mode** -- Controls all macOS audio devices via CoreAudio with intelligent fallback (Master > Channel > VirtualMaster > AppleScript > Software).
 - **Brightness Mode** -- Adjusts built-in and external displays via DisplayServices, DDC/CI hardware, gamma tables, or overlay dimming. Syncs all monitors by default with relative offset preservation, or controls them individually based on mouse cursor position.
