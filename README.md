@@ -25,7 +25,7 @@ Transform your Griffin PowerMate into a dedicated media control knob for your Ma
 | Gesture | Volume | Brightness | MIDI | Custom |
 |---------|--------|------------|------|--------|
 | **Rotate** | Adjust volume | Adjust brightness | Send MIDI CC | Per-profile action |
-| **Tap** | Snap to 20% (toggle) | Snap to 15% (toggle) | Toggle note | Per-profile action |
+| **Tap** | Snap to 20% (toggle) | Snap to 67% (toggle) | Toggle note | Per-profile action |
 | **Double-tap** | Mute / unmute | Sleep display | Toggle note | Per-profile action |
 | **Long press** | Cycle mode | Cycle mode | Cycle mode | Per-profile action* |
 

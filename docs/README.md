@@ -4,7 +4,6 @@
 ```
 PowerMateDriver/
 ├── Package.swift
-├── TODO.md                                Master task list
 ├── README.md                              Project overview + quick start
 ├── docs/
 │   ├── README.md                          ← you are here
@@ -44,19 +43,12 @@ swift run
 | Gesture | Volume | Brightness | MIDI | Custom |
 |---------|--------|------------|------|--------|
 | **Rotate** | Adjust volume | Adjust brightness | Send MIDI CC | Per-profile action |
-| **Tap** | Snap to 20% (toggle) | Snap to 15% (toggle) | Toggle note | Per-profile action |
+| **Tap** | Snap to 20% (toggle) | Snap to 67% (toggle) | Toggle note | Per-profile action |
 | **Double-tap** | Mute / unmute | Sleep display | Toggle note | Per-profile action |
 | **Long press** | Cycle mode | Cycle mode | Cycle mode | Per-profile action* |
 
 *\*Custom profiles can override long press with a custom action or extended press (hold-to-sustain), which disables mode cycling from the knob while active.*
 
-## Current Status
-- **v1.0 (Core Build):** Complete -- HID, volume, brightness, MIDI, OSD, gestures, settings, LED
-- **v1.1 (Polish):** Complete -- per-device audio routing memory, brightness warning, MIDI settings UI
-- **v1.2 (DDC/CI):** Complete -- native hardware brightness for external monitors, hybrid gamma+DDC, rate limiting
-- **v1.3 (Extended Brightness):** Complete -- overlay dimming, night mode, per-display preferences, multi-display sync
-- **v2.0 (Custom Mode):** Complete -- per-app profiles, scroll/keyboard/media/MIDI/OSC actions, long press override, extended press (hold-to-sustain), settings window, OSC controller, Codable persistence
-- **Deployment:** Sparkle integrated, .dmg script ready, awaiting code signing + notarization
 
 ## Key Design Decisions
 1. **No kernel extension** -- pure userspace IOKit HID, works on macOS 13+
