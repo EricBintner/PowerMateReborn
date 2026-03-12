@@ -6,7 +6,7 @@
   <img src="images/griffin-technology-powermate-mac-os9.png" alt="PowerMate USB Device" width="600">
 </div>
 
-Resurrecting the classic Griffin PowerMate USB for modern Mac setups (Apple Silicon and macOS Sequoia+). 
+Resurrecting the classic Griffin PowerMate USB & Blutooth controllers for modern Mac setups (Apple Silicon and macOS Sequoia+). 
 
 Since the official drivers haven't worked in years, this is a native Swift menu bar app built from scratch to bring that awesome piece of hardware back to life.
 
