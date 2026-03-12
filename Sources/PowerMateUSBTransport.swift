@@ -6,32 +6,15 @@ import IOKit.hid
 let kPowerMateVendorID:  Int = 0x077d
 let kPowerMateProductID: Int = 0x0410
 
-protocol PowerMateDelegate: AnyObject {
-    func powerMateDidConnect()
-    func powerMateDidDisconnect()
-    func powerMateDidRotate(delta: Int)
-    func powerMateButtonPressed()       // single press
-    func powerMateButtonDoubleTapped()  // two presses within doubleTapInterval
-    func powerMateButtonLongPressed()   // hold >= longPressThreshold
-    func powerMateButtonReleased()      // raw button-up (for extended press / sustain)
-}
-
-class PowerMateHID {
-    weak var delegate: PowerMateDelegate?
+/// USB HID transport for the Griffin PowerMate.
+/// Reports raw hardware events (rotation, button state) to the PowerMateManager
+/// via the PowerMateTransportDelegate protocol. No gesture detection here.
+class PowerMateUSBTransport: PowerMateTransport {
+    weak var transportDelegate: PowerMateTransportDelegate?
 
     private var manager: IOHIDManager?
     private var device: IOHIDDevice?
     private var lastButtonState: Bool = false
-
-    // Gesture detection
-    var longPressThreshold: TimeInterval = 0.5   // seconds
-    var doubleTapInterval: TimeInterval = 0.3    // max gap between taps
-    private var buttonDownTime: Date?
-    private var longPressTimer: Timer?
-    private var longPressFired: Bool = false
-    private var tapCount: Int = 0
-    private var singleTapTimer: Timer?
-    private var rotatedWhilePressed: Bool = false
 
     // LED state
     private(set) var ledBrightness: UInt8 = 0
@@ -50,13 +33,13 @@ class PowerMateHID {
 
         let matchCallback: IOHIDDeviceCallback = { context, result, sender, device in
             guard let context = context else { return }
-            let self_ = Unmanaged<PowerMateHID>.fromOpaque(context).takeUnretainedValue()
+            let self_ = Unmanaged<PowerMateUSBTransport>.fromOpaque(context).takeUnretainedValue()
             self_.onDeviceMatched(device)
         }
 
         let removeCallback: IOHIDDeviceCallback = { context, result, sender, device in
             guard let context = context else { return }
-            let self_ = Unmanaged<PowerMateHID>.fromOpaque(context).takeUnretainedValue()
+            let self_ = Unmanaged<PowerMateUSBTransport>.fromOpaque(context).takeUnretainedValue()
             self_.onDeviceRemoved(device)
         }
 
@@ -93,7 +76,7 @@ class PowerMateHID {
 
     /// Send a 1-byte HID output report — the only write path that works on macOS Sequoia
     @discardableResult
-    private func sendOutputReport(_ value: UInt8) -> Bool {
+    func sendOutputReport(_ value: UInt8) -> Bool {
         guard let hidDevice = device else { return false }
         var report: [UInt8] = [value]
         let result = IOHIDDeviceSetReport(hidDevice, kIOHIDReportTypeOutput, 0, &report, report.count)
@@ -124,7 +107,7 @@ class PowerMateHID {
 
         let inputCallback: IOHIDReportCallback = { context, result, sender, type, reportID, report, reportLength in
             guard let context = context else { return }
-            let self_ = Unmanaged<PowerMateHID>.fromOpaque(context).takeUnretainedValue()
+            let self_ = Unmanaged<PowerMateUSBTransport>.fromOpaque(context).takeUnretainedValue()
             self_.onInputReport(report: report, length: reportLength)
         }
 
@@ -139,7 +122,7 @@ class PowerMateHID {
         NSLog("PowerMate device matched")
 
         DispatchQueue.main.async {
-            self.delegate?.powerMateDidConnect()
+            self.transportDelegate?.transportDidConnect(self)
         }
     }
 
@@ -147,17 +130,8 @@ class PowerMateHID {
         device = nil
         lastButtonState = false
         
-        // Clean up pending gesture timers to prevent ghost events
-        singleTapTimer?.invalidate()
-        singleTapTimer = nil
-        longPressTimer?.invalidate()
-        longPressTimer = nil
-        buttonDownTime = nil
-        longPressFired = false
-        tapCount = 0
-        
         DispatchQueue.main.async {
-            self.delegate?.powerMateDidDisconnect()
+            self.transportDelegate?.transportDidDisconnect(self)
         }
     }
 
@@ -169,88 +143,16 @@ class PowerMateHID {
         let rotation = Int(Int8(bitPattern: report[1]))
 
         DispatchQueue.main.async {
-            // Button events
+            // Button state change -> report raw event to manager
             if buttonPressed != self.lastButtonState {
                 self.lastButtonState = buttonPressed
-                if buttonPressed {
-                    self.onButtonDown()
-                } else {
-                    self.onButtonUp()
-                }
+                self.transportDelegate?.transport(self, buttonStateChanged: buttonPressed)
             }
 
-            // Rotation events
+            // Rotation -> report raw delta to manager
             if rotation != 0 {
-                if self.buttonDownTime != nil {
-                    self.rotatedWhilePressed = true
-                }
-                self.delegate?.powerMateDidRotate(delta: rotation)
+                self.transportDelegate?.transport(self, didRotate: rotation)
             }
         }
-    }
-
-    // MARK: - Gesture Detection
-
-    private func onButtonDown() {
-        buttonDownTime = Date()
-        longPressFired = false
-        rotatedWhilePressed = false
-
-        // Cancel pending single-tap timer (we got another press)
-        singleTapTimer?.invalidate()
-        singleTapTimer = nil
-
-        // Start long-press timer
-        longPressTimer?.invalidate()
-        longPressTimer = Timer.scheduledTimer(withTimeInterval: longPressThreshold, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.longPressFired = true
-            self.tapCount = 0
-            self.singleTapTimer?.invalidate()
-            self.singleTapTimer = nil
-            self.delegate?.powerMateButtonLongPressed()
-        }
-    }
-
-    private func onButtonUp() {
-        longPressTimer?.invalidate()
-        longPressTimer = nil
-
-        // Always notify raw release (for extended press / sustain actions)
-        delegate?.powerMateButtonReleased()
-
-        guard !longPressFired else {
-            buttonDownTime = nil
-            longPressFired = false
-            rotatedWhilePressed = false
-            return
-        }
-        
-        guard !rotatedWhilePressed else {
-            buttonDownTime = nil
-            rotatedWhilePressed = false
-            return
-        }
-
-        tapCount += 1
-
-        if tapCount >= 2 {
-            // Double tap detected
-            tapCount = 0
-            singleTapTimer?.invalidate()
-            singleTapTimer = nil
-            delegate?.powerMateButtonDoubleTapped()
-        } else {
-            // First tap — wait for possible second tap
-            singleTapTimer?.invalidate()
-            singleTapTimer = Timer.scheduledTimer(withTimeInterval: doubleTapInterval, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                self.tapCount = 0
-                self.delegate?.powerMateButtonPressed()
-            }
-        }
-
-        buttonDownTime = nil
-        longPressFired = false
     }
 }

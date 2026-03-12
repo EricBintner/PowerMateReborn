@@ -92,7 +92,7 @@ class OSDOverlay {
         }
 
         // Show with fade-in if not already fully visible
-        if win.alphaValue == 0 || !win.isVisible {
+        if !win.isVisible {
             win.alphaValue = 0
             win.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { ctx in
@@ -100,9 +100,9 @@ class OSDOverlay {
                 win.animator().alphaValue = 1
             }
         } else if win.alphaValue < 1.0 {
-            // Cancel any in-progress fade-out and fade back in
+            // Cancel any in-progress fade-out immediately (no animation conflict)
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.15
+                ctx.duration = 0
                 win.animator().alphaValue = 1
             }
         }

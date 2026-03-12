@@ -36,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     static private(set) var shared: AppDelegate!
 
     private var statusItem: NSStatusItem!
-    private var powerMate = PowerMateHID()
+    private var powerMate = PowerMateManager()
     private var volumeController = VolumeController()
     private(set) var brightnessController = BrightnessController()
     private var midiController = MIDIController()
@@ -78,6 +78,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         loadSettings()
         setupMenuBar()
         volumeController.delegate = self
+        let usbTransport = PowerMateUSBTransport()
+        let bleTransport = PowerMateBLETransport()
+        powerMate.addTransport(usbTransport)
+        powerMate.addTransport(bleTransport)
         powerMate.delegate = self
         powerMate.start()
         updateStatusDisplay()

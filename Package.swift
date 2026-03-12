@@ -24,6 +24,7 @@ let package = Package(
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("CoreMIDI"),
+                .linkedFramework("CoreBluetooth"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("Sparkle", .when(platforms: [.macOS]))

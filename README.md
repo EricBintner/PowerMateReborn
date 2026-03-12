@@ -74,9 +74,12 @@ Enabling this override disables the ability to cycle between modes from the knob
 
 ## Hardware Requirements
 
-- **Device:** Griffin PowerMate USB
-- **Identifiers:** Vendor ID `0x077d`, Product ID `0x0410`
+- **Supported Devices:** 
+  - **Griffin PowerMate USB** (Vendor ID `0x077d`, Product ID `0x0410`)
+  - **Griffin PowerMate Bluetooth** (Beta support via CoreBluetooth)
 - **OS:** macOS 13+ (Optimized for Apple Silicon, macOS Sequoia)
+
+> **Note on Bluetooth Support:** Bluetooth connectivity is currently in Beta. You can connect both a USB and a Bluetooth PowerMate simultaneously. The Bluetooth LED works, but the exact button and rotation mapping for the Bluetooth model is still undergoing real-hardware validation.
 
 ## Installation
 
