@@ -73,6 +73,20 @@
       />
     </item>
 
+    <item>
+      <title>Version 1.0.0</title>
+      <sparkle:releaseNotesLink>
+        https://ericbintner.github.io/PowerMateReborn/releases/v1.0.0.html
+      </sparkle:releaseNotesLink>
+      <pubDate>Wed, 11 Mar 2026 18:27:02 -0400</pubDate>
+      <enclosure url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.0.0/PowerMateReborn_v1.0.0.dmg"
+                 sparkle:version="202603111825"
+                 sparkle:shortVersionString="1.0.0"
+                 length="966283"
+                 type="application/octet-stream"
+                 sparkle:edSignature="I/j1ph5QtZp6EGcpZNNerfWKgmF1vTqdupaEJ5NcIEKpqxG30rH+60CgcMDrUyDlli88qaST39sOpSrhoDP3Dw=="/>
+    </item>
+
     <!-- TEMPLATE: For future releases, copy the <item> block above and place it BEFORE this comment. Newest first. -->
 
   </channel>

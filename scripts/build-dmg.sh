@@ -84,6 +84,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <string>6.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
@@ -91,7 +93,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <key>SUFeedURL</key>
     <string>https://ericbintner.github.io/PowerMateReborn/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>REPLACE_WITH_YOUR_EDDSA_PUBLIC_KEY</string>
+    <string>SiMfU+5TNl47TwuyIcSiH2bIxGIukFt0UEz9XMl5NiE=</string>
 </dict>
 </plist>
 PLIST

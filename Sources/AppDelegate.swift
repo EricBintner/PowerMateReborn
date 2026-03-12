@@ -649,7 +649,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.spacing = 8
         
         // Version info
-        let versionLabel = NSTextField(labelWithString: "Version 2.0")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        let versionLabel = NSTextField(labelWithString: "Version \(version) (\(build))")
         versionLabel.font = NSFont.systemFont(ofSize: 13)
         versionLabel.textColor = .secondaryLabelColor
         versionLabel.alignment = .center
@@ -660,16 +662,71 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.addArrangedSubview(versionLabel)
         
         // Device status
-        let deviceStatus = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Not Connected"
+        let connected = powerMate.isConnected
+        let deviceStatus = connected ? "🟢 PowerMate Connected" : "⚪️ PowerMate Disconnected"
         let statusLabel = NSTextField(labelWithString: deviceStatus)
-        statusLabel.font = NSFont.systemFont(ofSize: 12)
-        statusLabel.textColor = NSColor.secondaryLabelColor
-        statusLabel.alignment = NSTextAlignment.center
+        statusLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        statusLabel.textColor = .labelColor
+        statusLabel.alignment = .center
         statusLabel.isEditable = false
         statusLabel.isSelectable = false
         statusLabel.drawsBackground = false
         statusLabel.isBordered = false
         container.addArrangedSubview(statusLabel)
+        
+        // Audio info
+        let audioInfo = "Audio: \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))"
+        let audioLabel = NSTextField(labelWithString: audioInfo)
+        audioLabel.font = NSFont.systemFont(ofSize: 12)
+        audioLabel.textColor = .secondaryLabelColor
+        audioLabel.alignment = .center
+        audioLabel.isEditable = false
+        audioLabel.isSelectable = false
+        audioLabel.drawsBackground = false
+        audioLabel.isBordered = false
+        container.addArrangedSubview(audioLabel)
+        
+        // Brightness info
+        let brightnessInfo = "Brightness: \(brightnessController.method.rawValue)"
+        let brightnessLabel = NSTextField(labelWithString: brightnessInfo)
+        brightnessLabel.font = NSFont.systemFont(ofSize: 12)
+        brightnessLabel.textColor = .secondaryLabelColor
+        brightnessLabel.alignment = .center
+        brightnessLabel.isEditable = false
+        brightnessLabel.isSelectable = false
+        brightnessLabel.drawsBackground = false
+        brightnessLabel.isBordered = false
+        container.addArrangedSubview(brightnessLabel)
+        
+        // Tip about multi-display
+        let tipLabel = NSTextField(wrappingLabelWithString: "Tip: By default, the knob dims all displays together. You can uncheck 'Sync All Displays' in the menu to control each monitor individually based on mouse location.")
+        tipLabel.font = NSFont.systemFont(ofSize: 11)
+        tipLabel.textColor = .secondaryLabelColor
+        tipLabel.alignment = .center
+        tipLabel.isEditable = false
+        tipLabel.isSelectable = false
+        tipLabel.drawsBackground = false
+        tipLabel.isBordered = false
+        tipLabel.maximumNumberOfLines = 0
+        tipLabel.lineBreakMode = .byWordWrapping
+        tipLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addArrangedSubview(tipLabel)
+        NSLayoutConstraint.activate([
+            tipLabel.widthAnchor.constraint(equalToConstant: 300)
+        ])
+        
+        // Spacer
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        container.addArrangedSubview(spacer)
+        NSLayoutConstraint.activate([
+            spacer.heightAnchor.constraint(equalToConstant: 4)
+        ])
+        
+        // Report Issue button
+        let issueButton = NSButton(title: "Report Issue on GitHub", target: self, action: #selector(openGitHubIssues))
+        issueButton.bezelStyle = .rounded
+        container.addArrangedSubview(issueButton)
         
         // Add padding
         container.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 10, right: 10)

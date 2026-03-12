@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 14 94 94" width="120" height="120">
+    <g transform="translate(60, 60)">
+        <g fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(3.5) translate(-12, -12)">
+            <!-- Inner Circle -->
+            <circle cx="12" cy="12" r="4" />
+            
+            <!-- Sun rays (left side) -->
+            <path d="M2 12h2" />
+            <path d="M4.93 4.93l1.41 1.41" />
+            <path d="M4.93 19.07l1.41-1.41" />
+            <path d="M12 20v2" />
+            <path d="M12 2v2" />
+            
+            <!-- Volume Arc (right side) -->
+            <path d="M18.8 6.2a8 8 0 0 1 0 11.6" />
+        </g>
+    </g>
+</svg>
