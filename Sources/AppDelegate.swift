@@ -59,7 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var volumeBeforeSnap: Float?
     private var brightnessBeforeSnap: Float?
     private var volumeSnapValue: Float = 0.20      // 20%
-    private var brightnessSnapValue: Float = 0.15  // 15% (night mode)
+    private var brightnessSnapValue: Float = 0.67  // 67%
 
     // UI Window Controllers
     private var customSettingsWindowController: NSWindowController?
@@ -282,6 +282,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         menu.addItem(modesItem)
 
+        // Snap Config
+        let snapMenu = NSMenu()
+        snapMenu.autoenablesItems = false
+        
+        // Volume Snap
+        let volumeSnapMenu = NSMenu()
+        for (label, value) in [("Mute (0%)", Float(0.0)), ("Low (20%)", Float(0.20)), ("Medium (50%)", Float(0.50)), ("High (80%)", Float(0.80))] {
+            let item = NSMenuItem(title: label, action: #selector(volumeSnapChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            if abs(volumeSnapValue - value) < 0.001 { item.state = .on }
+            volumeSnapMenu.addItem(item)
+        }
+        let volSnapItem = NSMenuItem(title: "Volume Tap Level", action: nil, keyEquivalent: "")
+        volSnapItem.submenu = volumeSnapMenu
+        if let img = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil) {
+            volSnapItem.image = img
+        }
+        snapMenu.addItem(volSnapItem)
+        
+        // Brightness Snap
+        let brightnessSnapMenu = NSMenu()
+        for (label, value) in [("Dark (15%)", Float(0.15)), ("Dim (33%)", Float(0.33)), ("Medium (50%)", Float(0.50)), ("Bright (67%)", Float(0.67)), ("Max (100%)", Float(1.0))] {
+            let item = NSMenuItem(title: label, action: #selector(brightnessSnapChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            if abs(brightnessSnapValue - value) < 0.001 { item.state = .on }
+            brightnessSnapMenu.addItem(item)
+        }
+        let brightSnapItem = NSMenuItem(title: "Brightness Tap Level", action: nil, keyEquivalent: "")
+        brightSnapItem.submenu = brightnessSnapMenu
+        if let img = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
+            brightSnapItem.image = img
+        }
+        snapMenu.addItem(brightSnapItem)
+        
+        let snapItem = NSMenuItem(title: "Tap Actions", action: nil, keyEquivalent: "")
+        snapItem.submenu = snapMenu
+        if let img = NSImage(systemSymbolName: "hand.tap.fill", accessibilityDescription: nil) {
+            snapItem.image = img
+        }
+        menu.addItem(snapItem)
+        
         // Sensitivity Config
         let sensitivityMenu = NSMenu()
         sensitivityMenu.autoenablesItems = false
@@ -550,6 +593,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     @objc private func sensitivityChanged(_ sender: NSMenuItem) {
         if let value = sender.representedObject as? Float {
             stepSize = value
+        }
+        refreshMenu()
+    }
+
+    @objc private func volumeSnapChanged(_ sender: NSMenuItem) {
+        if let value = sender.representedObject as? Float {
+            volumeSnapValue = value
+        }
+        refreshMenu()
+    }
+
+    @objc private func brightnessSnapChanged(_ sender: NSMenuItem) {
+        if let value = sender.representedObject as? Float {
+            brightnessSnapValue = value
         }
         refreshMenu()
     }
