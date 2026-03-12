@@ -8,6 +8,9 @@ class OSDOverlay {
     private var iconView: NSImageView?
     private var barView: LevelBarView?
     private var hideTimer: Timer?
+    
+    private var currentIconName: String?
+    private var displayToken = UUID()
 
     private let osdSize = NSSize(width: 200, height: 200)
     private let cornerRadius: CGFloat = 18
@@ -32,12 +35,18 @@ class OSDOverlay {
     func hide() {
         hideTimer?.invalidate()
         hideTimer = nil
+        
+        let token = UUID()
+        self.displayToken = token
+        
         guard let win = window else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = fadeDuration
             win.animator().alphaValue = 0
-        }, completionHandler: {
-            win.orderOut(nil)
+        }, completionHandler: { [weak self] in
+            if self?.displayToken == token {
+                win.orderOut(nil)
+            }
         })
     }
 
@@ -54,31 +63,48 @@ class OSDOverlay {
         ensureWindow()
         guard let win = window, let iconView = iconView, let barView = barView else { return }
 
-        // Update icon
-        if let img = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
-            let config = NSImage.SymbolConfiguration(pointSize: 48, weight: .medium)
-            iconView.image = img.withSymbolConfiguration(config)
-            iconView.contentTintColor = .white
+        displayToken = UUID()
+
+        // Update icon only if changed
+        if currentIconName != iconName {
+            currentIconName = iconName
+            if let img = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 48, weight: .medium)
+                iconView.image = img.withSymbolConfiguration(config)
+                iconView.contentTintColor = .white
+            }
         }
 
         // Update level bar
-        barView.level = level
-        barView.segmentCount = segments
-        barView.needsDisplay = true
+        if barView.level != level || barView.segmentCount != segments {
+            barView.level = level
+            barView.segmentCount = segments
+            barView.needsDisplay = true
+        }
 
-        // Position on the active screen (where the mouse is)
-        let screen = screenUnderMouse() ?? NSScreen.main ?? NSScreen.screens.first!
-        let screenFrame = screen.visibleFrame
-        let x = screenFrame.midX - osdSize.width / 2
-        let y = screenFrame.minY + screenFrame.height * 0.15
-        win.setFrameOrigin(NSPoint(x: x, y: y))
+        // Position on the active screen only if not already visible
+        if !win.isVisible || win.alphaValue == 0 {
+            let screen = screenUnderMouse() ?? NSScreen.main ?? NSScreen.screens.first!
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.midX - osdSize.width / 2
+            let y = screenFrame.minY + screenFrame.height * 0.15
+            win.setFrameOrigin(NSPoint(x: x, y: y))
+        }
 
-        // Show with fade-in
-        win.alphaValue = 0
-        win.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.15
-            win.animator().alphaValue = 1
+        // Show with fade-in if not already fully visible
+        if win.alphaValue == 0 || !win.isVisible {
+            win.alphaValue = 0
+            win.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                win.animator().alphaValue = 1
+            }
+        } else if win.alphaValue < 1.0 {
+            // Cancel any in-progress fade-out and fade back in
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                win.animator().alphaValue = 1
+            }
         }
 
         // Schedule hide
