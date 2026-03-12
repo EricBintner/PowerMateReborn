@@ -57,6 +57,12 @@ if [[ -d "$PROJECT_DIR/Sources/Resources" ]]; then
     cp -R "$PROJECT_DIR/Sources/Resources/"* "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
 fi
 
+# Copy Sparkle Framework into bundle
+echo "==> Embedding Sparkle.framework..."
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+cp -R "$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+
 # Generate Info.plist
 VERSION="${POWERMATE_VERSION:-1.0.0}"
 BUILD_NUMBER="${POWERMATE_BUILD:-$(date +%Y%m%d%H%M)}"
