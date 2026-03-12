@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>PowerMateReborn Updates</title>
-    <link>https://ericbintner.github.io/PowerMateReborn/appcast.xml</link>
+    <link>https://raw.githubusercontent.com/EricBintner/PowerMateReborn/main/Docs/appcast.xml</link>
     <description>Updates for PowerMateReborn</description>
     <language>en</language>
 

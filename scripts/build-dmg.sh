@@ -64,7 +64,7 @@ cp -R "$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-a
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # Generate Info.plist
-VERSION="${POWERMATE_VERSION:-1.0.0}"
+VERSION="${POWERMATE_VERSION:-1.1.0}"
 BUILD_NUMBER="${POWERMATE_BUILD:-$(date +%Y%m%d%H%M)}"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
@@ -97,7 +97,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <key>NSHumanReadableCopyright</key>
     <string>Copyright (c) 2025 Eric Bintner. All rights reserved.</string>
     <key>SUFeedURL</key>
-    <string>https://ericbintner.github.io/PowerMateReborn/appcast.xml</string>
+    <string>https://raw.githubusercontent.com/EricBintner/PowerMateReborn/main/Docs/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>SiMfU+5TNl47TwuyIcSiH2bIxGIukFt0UEz9XMl5NiE=</string>
 </dict>

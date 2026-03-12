@@ -52,11 +52,11 @@ This outputs an `edSignature` and `length`. Paste both into the `<enclosure>` ta
 
 1. Build the DMG: `./scripts/build-dmg.sh --release`
 2. Sign it (Step 3 above)
-3. Create a GitHub Release with tag `v1.0.0`
+3. Create a GitHub Release with tag `v1.1.0`
 4. Upload the `.dmg` to the release
 5. Update `docs/appcast.xml` with:
    - `sparkle:edSignature` from the sign_update output
-   - `length` (file size in bytes): `wc -c < build/PowerMateReborn_v1.0.0.dmg`
+   - `length` (file size in bytes): `wc -c < build/PowerMateReborn_v1.1.0.dmg`
    - `pubDate` in RFC 2822 format: `date -R`
 6. Commit and push the updated appcast
 7. Users with the app installed will see the update notification

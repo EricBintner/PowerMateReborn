@@ -69,23 +69,23 @@ echo $?  # should print 0
 
 # 4. Rebuild the DMG with the signed app
 # (The build script already created one, but we need to remake it with the signed app)
-rm -f build/PowerMateReborn_v1.0.0.dmg
+rm -f build/PowerMateReborn_v1.1.0.dmg
 hdiutil create -volname "PowerMateReborn" \
   -srcfolder build/PowerMateReborn.app \
   -ov -format UDZO \
-  build/PowerMateReborn_v1.0.0.dmg
+  build/PowerMateReborn_v1.1.0.dmg
 ```
 
 ## Step 4: Notarize
 
 ```bash
 # Submit for notarization (uses stored credentials from Step 2)
-xcrun notarytool submit build/PowerMateReborn_v1.0.0.dmg \
+xcrun notarytool submit build/PowerMateReborn_v1.1.0.dmg \
   --keychain-profile "PowerMate-Notarize" \
   --wait
 
 # If successful, staple the notarization ticket to the DMG
-xcrun stapler staple build/PowerMateReborn_v1.0.0.dmg
+xcrun stapler staple build/PowerMateReborn_v1.1.0.dmg
 ```
 
 The `--wait` flag blocks until Apple's servers finish checking (usually 2-5 minutes).
@@ -100,14 +100,14 @@ xcrun notarytool log <submission-id> --keychain-profile "PowerMate-Notarize"
 1. Go to https://github.com/EricBintner/PowerMateReborn/releases
 2. Click **Draft a new release**
 3. Tag: `v1.0.0`, Title: `PowerMateReborn 1.0.0`
-4. Upload `build/PowerMateReborn_v1.0.0.dmg`
+4. Upload `build/PowerMateReborn_v1.1.0.dmg`
 5. Publish
 
 ## Step 6: Update Sparkle Appcast
 
 ```bash
 # Sign the DMG for Sparkle auto-updates
-.build/artifacts/sparkle/Sparkle/bin/sign_update build/PowerMateReborn_v1.0.0.dmg
+.build/artifacts/sparkle/Sparkle/bin/sign_update build/PowerMateReborn_v1.1.0.dmg
 ```
 
 This prints an `edSignature` and `length`. Update `docs/appcast.xml`:
@@ -132,15 +132,15 @@ codesign --deep --force --options runtime \
 hdiutil create -volname "PowerMateReborn" \
   -srcfolder build/PowerMateReborn.app \
   -ov -format UDZO \
-  build/PowerMateReborn_v1.0.0.dmg
+  build/PowerMateReborn_v1.1.0.dmg
 
 # Notarize
-xcrun notarytool submit build/PowerMateReborn_v1.0.0.dmg \
+xcrun notarytool submit build/PowerMateReborn_v1.1.0.dmg \
   --keychain-profile "PowerMate-Notarize" --wait
-xcrun stapler staple build/PowerMateReborn_v1.0.0.dmg
+xcrun stapler staple build/PowerMateReborn_v1.1.0.dmg
 
 # Sparkle signing
-.build/artifacts/sparkle/Sparkle/bin/sign_update build/PowerMateReborn_v1.0.0.dmg
+.build/artifacts/sparkle/Sparkle/bin/sign_update build/PowerMateReborn_v1.1.0.dmg
 
 # Upload to GitHub Releases, update docs/appcast.xml, push
 ```
