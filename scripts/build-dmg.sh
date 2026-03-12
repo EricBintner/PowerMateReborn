@@ -13,6 +13,9 @@ APP_NAME="PowerMateReborn"
 BUILD_DIR="$PROJECT_DIR/build"
 DMG_DIR="$BUILD_DIR/dmg-staging"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+SIGN_IDENTITY="Developer ID Application: Eric Bintner (FU96NT58N5)"
+ENTITLEMENTS="$PROJECT_DIR/PowerMateDriver.entitlements"
+SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 
 # Parse args
 BUILD_CONFIG="debug"
@@ -97,7 +100,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <key>NSHumanReadableCopyright</key>
     <string>Copyright (c) 2025 Eric Bintner. All rights reserved.</string>
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/EricBintner/PowerMateReborn/main/Docs/appcast.xml</string>
+    <string>https://ericbintner.github.io/PowerMateReborn/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>SiMfU+5TNl47TwuyIcSiH2bIxGIukFt0UEz9XMl5NiE=</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
@@ -107,6 +110,48 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
 PLIST
 
 echo "    Version: $VERSION ($BUILD_NUMBER)"
+
+# Strip extended attributes (resource forks, quarantine) that block codesign
+echo "==> Stripping extended attributes..."
+xattr -cr "$APP_BUNDLE"
+
+# Code-sign the app bundle with Developer ID
+echo "==> Code-signing with Developer ID..."
+
+# Sign embedded frameworks first (inside-out signing)
+if [[ -d "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" ]]; then
+    codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" 2>/dev/null || true
+    codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" 2>/dev/null || true
+    codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" 2>/dev/null || true
+    codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app" 2>/dev/null || true
+    codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+fi
+
+# Sign the main app bundle
+if [[ -f "$ENTITLEMENTS" ]]; then
+    codesign --force --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE"
+else
+    codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE"
+fi
+
+# Verify signature
+echo "    Verifying signature..."
+codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 | grep -E "(Authority|TeamIdentifier|Signature)" || true
 
 echo "==> Creating .dmg..."
 
@@ -132,6 +177,18 @@ hdiutil create \
 # Clean up staging
 rm -rf "$DMG_DIR"
 
+# Sign the DMG with EdDSA for Sparkle
+echo ""
+if [[ -f "$SIGN_UPDATE" ]]; then
+    echo "==> Signing DMG with EdDSA for Sparkle..."
+    EDDSA_OUTPUT=$("$SIGN_UPDATE" "$DMG_PATH")
+    echo "    $EDDSA_OUTPUT"
+    echo ""
+    echo "    Copy the above sparkle:edSignature and length into docs/appcast.xml"
+else
+    echo "    WARNING: sign_update not found. Run 'swift package resolve' to fetch Sparkle."
+fi
+
 echo ""
 echo "==> Done!"
 echo "    App:  $APP_BUNDLE"
@@ -140,12 +197,5 @@ echo ""
 
 # Print size
 DMG_SIZE=$(du -h "$DMG_PATH" | cut -f1)
-echo "    Size: $DMG_SIZE"
-
-# Reminder about signing
-if ! codesign -dv "$APP_BUNDLE" 2>/dev/null; then
-    echo ""
-    echo "    NOTE: App is NOT code-signed. To sign and notarize:"
-    echo "    codesign --deep --force --options runtime --sign \"Developer ID Application: YOUR NAME\" $APP_BUNDLE"
-    echo "    xcrun notarytool submit $DMG_PATH --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID --password YOUR_APP_PASSWORD"
-fi
+DMG_BYTES=$(wc -c < "$DMG_PATH" | tr -d ' ')
+echo "    Size: $DMG_SIZE ($DMG_BYTES bytes)"
