@@ -102,7 +102,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <key>SUFeedURL</key>
     <string>https://ericbintner.github.io/PowerMateReborn/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>SiMfU+5TNl47TwuyIcSiH2bIxGIukFt0UEz9XMl5NiE=</string>
+    <string>SiMfU+5TNl47TWuyIcSiH2bIxGIukFt0UEz9XMl5NiE=</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>PowerMateReborn uses Bluetooth to communicate with the Griffin PowerMate Bluetooth controller.</string>
 </dict>
