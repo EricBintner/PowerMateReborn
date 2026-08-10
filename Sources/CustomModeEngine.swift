@@ -391,20 +391,20 @@ class CustomModeEngine: ObservableObject {
     // MARK: - Media Keys
 
     private func executeMediaCommand(_ command: MediaCommand) {
-        let keyCode: Int64
+        let keyCode: UInt32
         switch command {
-        case .playPause: keyCode = Int64(NX_KEYTYPE_PLAY)
-        case .nextTrack: keyCode = Int64(NX_KEYTYPE_NEXT)
-        case .prevTrack: keyCode = Int64(NX_KEYTYPE_PREVIOUS)
+        case .playPause: keyCode = UInt32(NX_KEYTYPE_PLAY)
+        case .nextTrack: keyCode = UInt32(NX_KEYTYPE_NEXT)
+        case .prevTrack: keyCode = UInt32(NX_KEYTYPE_PREVIOUS)
         }
 
-        func postMediaKey(_ keyCode: Int64, down: Bool) {
-            let flags: Int64 = down ? 0xa00 : 0xb00
-            let data1 = (keyCode << 16) | (flags << 16)
+        func postMediaKey(_ key: UInt32, down: Bool) {
+            let flags = NSEvent.ModifierFlags(rawValue: (down ? 0xa00 : 0xb00))
+            let data1 = Int((key<<16) | (down ? 0xa00 : 0xb00))
             let event = NSEvent.otherEvent(
                 with: .systemDefined,
                 location: .zero,
-                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(flags)),
+                modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: 0,
                 context: nil,
@@ -412,7 +412,7 @@ class CustomModeEngine: ObservableObject {
                 data1: Int(data1),
                 data2: -1
             )
-            event?.cgEvent?.post(tap: .cgSessionEventTap)
+            event?.cgEvent?.post(tap: .cghidEventTap)
         }
 
         postMediaKey(keyCode, down: true)
