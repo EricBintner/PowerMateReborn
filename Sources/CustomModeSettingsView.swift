@@ -343,6 +343,8 @@ struct ActionConfigRow: View {
                             }
                         }
                         .frame(width: 260)
+                    case .volume:
+                        EmptyView()
                     }
                 }
                 .padding(.leading, 4)

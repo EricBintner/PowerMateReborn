@@ -20,5 +20,7 @@
 	<false/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<false/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>

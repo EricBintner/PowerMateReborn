@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import CoreAudio
 import AudioToolbox
+import ScriptingBridge
 
 // MARK: - Audio Device Info
 
@@ -9,6 +10,7 @@ enum VolumeControlMethod: String {
     case coreAudioMaster    = "CoreAudio Master"
     case coreAudioChannel   = "CoreAudio Channel"
     case virtualMaster      = "Virtual Master"
+    case appleMusic         = "Apple Music"
     case appleScript        = "AppleScript"
     case softwareVolume     = "Software Volume"
     case none               = "None"
@@ -87,6 +89,10 @@ class VolumeController {
     private(set) var allOutputDevices: [AudioDeviceInfo] = []
     private(set) var volumeMethod: VolumeControlMethod = .none
 
+    lazy private var appleMusicApplication: SBApplication = {
+        return SBApplication(bundleIdentifier: "com.apple.Music")!
+    }()
+
     // Software Volume state — internal gain tracker for devices without native control
     // Like an iPhone controlling volume before sending to a powered receiver
     private var softwareLevel: Float = 0.75
@@ -95,6 +101,23 @@ class VolumeController {
     // Mute simulation state (A5) — used by native tiers without hardware mute
     private var simulatedMute: Bool = false
     private var volumeBeforeMute: Float = 0.0
+
+    // Latest level the knob (or an external change we adopted) wants.
+    // getVolume/isMuted return this so a spin does not query CoreAudio per tick.
+    private var commandedVolume: Float?
+    private var commandedMuted: Bool?
+    /// Mute value last pushed to hardware, so later flushes skip the mute read.
+    private var lastSyncedMute: Bool?
+    /// CoreAudio listener callbacks still in flight from our own writes.
+    private var hardwareEchoes = 0
+
+    // Hardware / Apple Music writes are coalesced the same way as AppleScript:
+    // each tick overwrites the pending level, and the device is touched at
+    // most once per interval with the latest value.
+    private var pendingHardwareVolume: Float?
+    private var lastHardwareSetTime: TimeInterval = 0
+    private let hardwareMinInterval: TimeInterval = 0.05
+    private var hardwareTimer: Timer?
 
     // Rate limiting (A7)
     private var lastAppleScriptTime: TimeInterval = 0
@@ -130,25 +153,31 @@ class VolumeController {
 
     /// Get current volume (0.0 - 1.0)
     func getVolume() -> Float {
-        switch volumeMethod {
-        case .softwareVolume:
+        if volumeMethod == .softwareVolume {
             return softwareMuted ? 0.0 : softwareLevel
-        default:
-            if simulatedMute { return 0.0 }
-            switch volumeMethod {
-            case .coreAudioMaster:  return getCoreAudioVolume(element: 0)
-            case .coreAudioChannel: return getCoreAudioChannelAverage()
-            case .virtualMaster:    return getVirtualMasterVolume()
-            case .appleScript:      return getAppleScriptVolume()
-            case .none:             return 0.5
-            default:                return 0.5
-            }
+        }
+        if let commandedVolume { return commandedVolume }
+        return readHardwareVolume()
+    }
+
+    private func readHardwareVolume() -> Float {
+        if simulatedMute { return 0.0 }
+        switch volumeMethod {
+        case .coreAudioMaster:  return getCoreAudioVolume(element: 0)
+        case .coreAudioChannel: return getCoreAudioChannelAverage()
+        case .virtualMaster:    return getVirtualMasterVolume()
+        case .appleMusic:       return getAppleMusicVolume()
+        case .appleScript:      return getAppleScriptVolume()
+        case .none:             return 0.5
+        default:                return 0.5
         }
     }
 
     /// Set volume (0.0 - 1.0)
     func setVolume(_ volume: Float) {
         let clamped = max(0.0, min(1.0, volume))
+        commandedVolume = clamped
+        commandedMuted = clamped <= 0
 
         switch volumeMethod {
         case .softwareVolume:
@@ -157,17 +186,13 @@ class VolumeController {
             // Best-effort: try AppleScript in background (may or may not work)
             bestEffortSetVolume(clamped)
 
+        case .appleScript:
+            if simulatedMute { simulatedMute = false }
+            setAppleScriptVolumeThrottled(clamped)
+
         default:
             if simulatedMute { simulatedMute = false }
-            switch volumeMethod {
-            case .coreAudioMaster:  setCoreAudioVolume(clamped, element: 0)
-            case .coreAudioChannel: setCoreAudioChannelVolume(clamped)
-            case .virtualMaster:    setVirtualMasterVolume(clamped)
-            case .appleScript:      setAppleScriptVolumeThrottled(clamped)
-            case .none:             break
-            default:                break
-            }
-            syncMute(toLevel: clamped)
+            setHardwareVolumeThrottled(clamped)
         }
     }
 
@@ -179,11 +204,73 @@ class VolumeController {
     private func syncMute(toLevel level: Float) {
         guard let info = activeDeviceInfo else { return }
         let mute = level <= 0.0
+        // A spin stays on one side of zero for many ticks. Skip the HAL mute
+        // read once we know the device already matches.
+        if lastSyncedMute == mute { return }
         if info.hasMute && info.isMuteSettable {
-            if getCoreAudioMute() != mute { setCoreAudioMute(mute) }
+            if getCoreAudioMute() != mute {
+                setCoreAudioMute(mute)
+                hardwareEchoes += 1
+            }
+            lastSyncedMute = mute
         } else if volumeMethod == .appleScript {
             if getAppleScriptMute() != mute { setAppleScriptMute(mute) }
+            lastSyncedMute = mute
         }
+    }
+
+    /// Queue a hardware or Apple Music write. Rapid knob ticks overwrite the
+    /// pending level; only the latest value is sent, at most 20 times a second.
+    private func setHardwareVolumeThrottled(_ volume: Float) {
+        pendingHardwareVolume = volume
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastHardwareSetTime
+        if elapsed >= hardwareMinInterval {
+            flushHardwareVolume()
+        } else {
+            hardwareTimer?.invalidate()
+            let remaining = hardwareMinInterval - elapsed
+            let timer = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in
+                self?.flushHardwareVolume()
+            }
+            hardwareTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    private func flushHardwareVolume() {
+        hardwareTimer?.invalidate()
+        hardwareTimer = nil
+        guard let volume = pendingHardwareVolume else { return }
+        pendingHardwareVolume = nil
+        lastHardwareSetTime = ProcessInfo.processInfo.systemUptime
+        if simulatedMute { simulatedMute = false }
+
+        switch volumeMethod {
+        case .coreAudioMaster:
+            hardwareEchoes += 1
+            setCoreAudioVolume(volume, element: 0)
+        case .coreAudioChannel:
+            hardwareEchoes += 1
+            setCoreAudioChannelVolume(volume)
+        case .virtualMaster:
+            hardwareEchoes += 1
+            setVirtualMasterVolume(volume)
+        case .appleMusic:
+            setAppleMusicVolume(volume)
+        default:
+            break
+        }
+        syncMute(toLevel: volume)
+    }
+
+    private func invalidateCommandedVolume() {
+        commandedVolume = nil
+        commandedMuted = nil
+        lastSyncedMute = nil
+        pendingHardwareVolume = nil
+        hardwareEchoes = 0
+        hardwareTimer?.invalidate()
+        hardwareTimer = nil
     }
 
     /// Adjust volume by a delta (-1.0 to 1.0)
@@ -213,6 +300,7 @@ class VolumeController {
         if volumeMethod == .softwareVolume {
             return softwareMuted
         }
+        if let commandedMuted { return commandedMuted }
         if simulatedMute { return true }
         guard let info = activeDeviceInfo else { return false }
         if info.hasMute && info.isMuteSettable {
@@ -234,9 +322,16 @@ class VolumeController {
 
         guard let info = activeDeviceInfo else { return }
         if info.hasMute && info.isMuteSettable {
-            setCoreAudioMute(!getCoreAudioMute())
+            let muted = !(commandedMuted ?? getCoreAudioMute())
+            setCoreAudioMute(muted)
+            commandedMuted = muted
+            lastSyncedMute = muted
+            hardwareEchoes += 1
         } else if volumeMethod == .appleScript {
-            toggleAppleScriptMute()
+            let muted = !(commandedMuted ?? getAppleScriptMute())
+            setAppleScriptMute(muted)
+            commandedMuted = muted
+            lastSyncedMute = muted
         } else {
             // Mute simulation for native tiers without hardware mute
             if simulatedMute {
@@ -261,8 +356,13 @@ class VolumeController {
         guard let info = activeDeviceInfo else { return }
         if info.hasMute && info.isMuteSettable {
             setCoreAudioMute(mute)
+            commandedMuted = mute
+            lastSyncedMute = mute
+            hardwareEchoes += 1
         } else if volumeMethod == .appleScript {
             setAppleScriptMute(mute)
+            commandedMuted = mute
+            lastSyncedMute = mute
         } else {
             if mute && !simulatedMute {
                 volumeBeforeMute = getVolume()
@@ -287,37 +387,60 @@ class VolumeController {
 
     /// Manually switch to a specific audio device
     func setActiveDevice(_ deviceID: AudioDeviceID) {
-        guard let dev = allOutputDevices.first(where: { $0.deviceID == deviceID }) else {
-            NSLog("Audio: device %d not found", deviceID)
-            return
+        var dev: AudioDeviceInfo? = allOutputDevices.first(where: { $0.deviceID == deviceID })
+        if dev == nil {
+            if deviceID != 9999 {
+                NSLog("Audio: device %d not found", deviceID)
+                return
+            }
         }
+        invalidateCommandedVolume()
         removeVolumeListeners()
         activeDeviceID = deviceID
-        activeDeviceInfo = dev
-        
+
         // Determine method, with safety fallback for virtual devices
-        var method = dev.bestVolumeMethod
-        let isVirtual = dev.transportType == kAudioDeviceTransportTypeVirtual
-        if isVirtual && method == .none {
-            method = .softwareVolume
-        } else if method == .none {
-            method = probeAppleScriptVolume() ? .appleScript : .softwareVolume
+        if dev != nil {
+            activeDeviceInfo = dev
+            var method = dev!.bestVolumeMethod
+            let isVirtual = dev!.transportType == kAudioDeviceTransportTypeVirtual
+            if isVirtual && method == .none {
+                method = .softwareVolume
+            } else if method == .none {
+                method = probeAppleScriptVolume() ? .appleScript : .softwareVolume
+            }
+            // Force software volume for virtual devices relying on AppleScript (it rarely works)
+            if isVirtual && method == .appleScript {
+                method = .softwareVolume
+            }
+            volumeMethod = method
+            if volumeMethod == .softwareVolume {
+                softwareLevel = 0.75
+                softwareMuted = false
+            }
         }
-        // Force software volume for virtual devices relying on AppleScript (it rarely works)
-        if isVirtual && method == .appleScript {
-            method = .softwareVolume
+        else {
+            dev = AudioDeviceInfo(
+                deviceID: deviceID,
+                name: "Apple Music",
+                uid: "",
+                transportType: kAudioDeviceTransportTypeVirtual,
+                hasVolumeScalar: false,
+                hasChannelVolume: false,
+                hasVirtualMaster: false,
+                hasMute: false,
+                isVolumeSettable: true,
+                isMuteSettable: false,
+                outputStreamCount: 1
+            )
+            activeDeviceInfo = dev
+            volumeMethod = .appleMusic
         }
-        
-        volumeMethod = method
-        if volumeMethod == .softwareVolume {
-            softwareLevel = 0.75
-            softwareMuted = false
-        }
+
         simulatedMute = false
         installVolumeListeners()
-        NSLog("Audio: manually switched to %d \"%@\" method=%@", deviceID, dev.name, volumeMethod.rawValue)
+        NSLog("Audio: manually switched to %d \"%@\" method=%@", deviceID, dev!.name, volumeMethod.rawValue)
         DispatchQueue.main.async {
-            self.delegate?.audioDeviceDidChange(deviceName: dev.name, method: self.volumeMethod)
+            self.delegate?.audioDeviceDidChange(deviceName: dev!.name, method: self.volumeMethod)
         }
     }
 
@@ -394,6 +517,7 @@ class VolumeController {
         }
 
         if previousDeviceID != activeDeviceID {
+            invalidateCommandedVolume()
             simulatedMute = false
             DispatchQueue.main.async {
                 self.delegate?.audioDeviceDidChange(deviceName: deviceName, method: self.volumeMethod)
@@ -673,8 +797,19 @@ class VolumeController {
     }
 
     private func onExternalVolumeChange() {
-        let vol = getVolume()
+        if hardwareEchoes > 0 {
+            hardwareEchoes -= 1
+            return
+        }
+        // A keyboard or menu change. Drop the knob's cached level and read
+        // the device once, then keep that so the next ticks stay off the HAL.
+        commandedVolume = nil
+        commandedMuted = nil
+        let vol = readHardwareVolume()
         let muted = isMuted()
+        commandedVolume = vol
+        commandedMuted = muted
+        lastSyncedMute = muted
         delegate?.volumeDidChange(volume: vol, muted: muted)
     }
 
@@ -826,6 +961,19 @@ class VolumeController {
         AudioObjectSetPropertyData(activeDeviceID, &address, 0, nil, size, &muted)
     }
 
+    // MARK: - Apple Music volume (via SBApplication)
+
+    private func getAppleMusicVolume() -> Float {
+        guard let soundVolume = appleMusicApplication.value(forKey: "soundVolume") else {
+            return 0.5
+        }
+        return (soundVolume as! Float) / 100.0
+    }
+
+    private func setAppleMusicVolume(_ volume: Float) {
+        appleMusicApplication.setValue(round(volume * 100.0), forKey: "soundVolume")
+    }
+
     // MARK: - Tier 2: AppleScript (with rate limiting — A7)
 
     private func getAppleScriptVolume() -> Float {
@@ -850,13 +998,17 @@ class VolumeController {
             // Schedule flush after remaining interval
             appleScriptTimer?.invalidate()
             let remaining = appleScriptMinInterval - elapsed
-            appleScriptTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+            let timer = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in
                 self?.flushAppleScriptVolume()
             }
+            appleScriptTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
         }
     }
 
     private func flushAppleScriptVolume() {
+        appleScriptTimer?.invalidate()
+        appleScriptTimer = nil
         guard let volume = pendingAppleScriptVolume else { return }
         pendingAppleScriptVolume = nil
         lastAppleScriptTime = ProcessInfo.processInfo.systemUptime
@@ -870,6 +1022,7 @@ class VolumeController {
             handleAppleScriptError(error)
         } else {
             appleScriptConsecutiveFailures = 0
+            syncMute(toLevel: volume)
         }
     }
 

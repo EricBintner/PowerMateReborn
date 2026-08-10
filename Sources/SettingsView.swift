@@ -191,6 +191,8 @@ private struct AudioSettingsSection: View {
                               ? "speaker.wave.2" : "speaker.slash")
                             .tag(dev.deviceID)
                     }
+                    Label("Apple Music", systemImage: "music.note")
+                        .tag(AudioDeviceID(9999))
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)

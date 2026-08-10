@@ -103,6 +103,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         loadSettings()
         setupMenuBar()
         volumeController.delegate = self
+        customEngine.volumeController = volumeController
         let usbTransport = PowerMateUSBTransport()
         let bleTransport = PowerMateBLETransport()
         powerMate.addTransport(usbTransport)
@@ -950,7 +951,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .midi:
             level = midiController.ccLevel
         case .custom:
-            level = 0.5
+            if customEngine.activeProfile?.rotateLeft.type == .volume {
+                level = volumeController.isMuted() ? 0 : volumeController.getVolume()
+            }
+            else {
+                level = 0.5
+            }
         }
         let ledVal = UInt8(max(0, min(255, level * 255)))
         powerMate.setLEDBrightness(ledVal)

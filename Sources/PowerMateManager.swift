@@ -74,6 +74,15 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
     private var userActivityAssertion = IOPMAssertionID(0)
     private var lastUserActivity = Date.distantPast
 
+    // LED output reports block the main thread until the knob accepts them
+    // (~8 ms, the USB interval). Keep the latest byte and send it at most
+    // 20 times a second, same shape as the volume throttle.
+    private var pendingLED: UInt8?
+    private var lastLEDSent: UInt8?
+    private var lastLEDTime: TimeInterval = 0
+    private var ledTimer: Timer?
+    private let ledMinInterval: TimeInterval = 0.05
+
     override init() {
         super.init()
     }
@@ -92,6 +101,11 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
     }
 
     func stop() {
+        if pendingLED != nil {
+            flushLED()
+        }
+        ledTimer?.invalidate()
+        ledTimer = nil
         for transport in transports {
             transport.stop()
         }
@@ -116,6 +130,31 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
 
     func setLEDBrightness(_ brightness: UInt8) {
         ledBrightness = brightness
+        if pendingLED == brightness { return }
+        if pendingLED == nil, lastLEDSent == brightness { return }
+
+        pendingLED = brightness
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastLEDTime
+        if elapsed >= ledMinInterval {
+            flushLED()
+        } else {
+            ledTimer?.invalidate()
+            let remaining = ledMinInterval - elapsed
+            let timer = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in
+                self?.flushLED()
+            }
+            ledTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    private func flushLED() {
+        ledTimer?.invalidate()
+        ledTimer = nil
+        guard let brightness = pendingLED else { return }
+        pendingLED = nil
+        lastLEDTime = ProcessInfo.processInfo.systemUptime
+        lastLEDSent = brightness
         for transport in transports where transport.isConnected {
             transport.setLEDBrightness(brightness)
         }

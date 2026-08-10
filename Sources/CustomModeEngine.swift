@@ -13,6 +13,7 @@ enum CodableActionType: String, Codable, CaseIterable, Identifiable {
     case midiCC
     case midiNote
     case osc
+    case volume
 
     var id: String { rawValue }
 
@@ -25,6 +26,7 @@ enum CodableActionType: String, Codable, CaseIterable, Identifiable {
         case .midiCC:     return "MIDI CC (Continuous)"
         case .midiNote:   return "MIDI Note"
         case .osc:        return "OSC Message"
+        case .volume:     return "Volume"
         }
     }
 }
@@ -124,6 +126,9 @@ class CustomModeEngine: ObservableObject {
     var midiController: MIDIController? {
         return AppDelegate.shared?.midiController
     }
+
+    var volumeController: VolumeController? = nil
+    private let osd = OSDOverlay()
 
     // Extended press state
     private(set) var extendedPressActive: Bool = false
@@ -346,6 +351,18 @@ class CustomModeEngine: ObservableObject {
             } else {
                 // For button press: send trigger
                 oscController.sendTrigger(action.osc.path, host: action.osc.host, port: action.osc.port)
+            }
+
+        case .volume:
+            if let vol = volumeController {
+                if rotationDelta != 0 {
+                    let adjustment = Float(rotationDelta) * stepSize
+                    vol.adjustVolume(by: adjustment)
+                    osd.showVolume(level: vol.getVolume(), muted: vol.isMuted())
+                } else {
+                    vol.toggleMute()
+                    osd.showVolume(level: vol.getVolume(), muted: vol.isMuted())
+                }
             }
         }
     }

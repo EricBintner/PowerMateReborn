@@ -27,6 +27,7 @@ let package = Package(
                 .linkedFramework("CoreBluetooth"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("CoreGraphics"),
+                .linkedFramework("ScriptingBridge"),
                 .linkedFramework("Sparkle", .when(platforms: [.macOS]))
             ]
         ),
