@@ -132,6 +132,12 @@ class CustomModeEngine: ObservableObject {
     // CC accumulator for continuous rotation actions
     private var ccAccumulators: [UInt8: Float] = [:]  // ccNumber -> current 0-127 float
 
+    /// Whether this process is trusted to post synthetic input events
+    /// (scroll/keyboard CGEvents). Custom Mode silently does nothing without
+    /// the Accessibility permission on a fresh macOS install; exposed so the
+    /// settings UI can tell the user instead of leaving actions dead.
+    @Published var inputPermissionGranted: Bool = AXIsProcessTrusted()
+
     init() {
         loadProfiles()
         if profiles.isEmpty {
@@ -238,6 +244,9 @@ class CustomModeEngine: ObservableObject {
 
     func handleRotation(delta: Int, stepSize: Float) {
         guard let profile = activeProfile else { return }
+        // Re-check synthetic-input permission on the first event after
+        // launch/permission changes — Custom Mode is silently dead without it.
+        refreshInputPermissionIfNeeded()
         let action = delta > 0 ? profile.rotateRight : profile.rotateLeft
         let magnitude = abs(delta)
 
@@ -245,6 +254,20 @@ class CustomModeEngine: ObservableObject {
             executeAction(action, rotationDelta: delta > 0 ? 1 : -1, stepSize: stepSize)
         }
     }
+
+    /// Update inputPermissionGranted if the trust state may have changed, and
+    /// log once when events will be dropped so the user can self-diagnose.
+    private func refreshInputPermissionIfNeeded() {
+        let trusted = AXIsProcessTrusted()
+        if trusted != inputPermissionGranted {
+            inputPermissionGranted = trusted
+        }
+        if !trusted && !hasLoggedPermissionWarning {
+            hasLoggedPermissionWarning = true
+            NSLog("Custom: Accessibility permission missing — scroll/keyboard actions will do nothing. Grant it in System Settings > Privacy & Security > Accessibility.")
+        }
+    }
+    private var hasLoggedPermissionWarning = false
 
     func handleSingleTap() {
         guard let profile = activeProfile else { return }

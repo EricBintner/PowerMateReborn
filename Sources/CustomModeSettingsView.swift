@@ -61,7 +61,23 @@ struct CustomModeSettingsView: View {
         } detail: {
             if let selectedProfileID,
                let index = engine.profiles.firstIndex(where: { $0.id == selectedProfileID }) {
-                ProfileDetailView(engine: engine, profileIndex: index)
+                VStack(spacing: 0) {
+                    if !engine.inputPermissionGranted {
+                        // Custom Mode's scroll/keyboard actions post CGEvents,
+                        // which require Accessibility; without it they silently
+                        // do nothing on a fresh macOS install.
+                        Label(
+                            "Scroll and keyboard actions need Accessibility permission (System Settings > Privacy & Security > Accessibility).",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.1))
+                    }
+                    ProfileDetailView(engine: engine, profileIndex: index)
+                }
             } else {
                 Text("Select an application profile to configure Custom Mode.")
                     .foregroundColor(.secondary)
