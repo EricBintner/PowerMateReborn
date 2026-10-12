@@ -108,21 +108,33 @@ class BrightnessController {
         return setter(displayID, value)
     }
 
-    private func probeDisplays() {
+    private func probeDisplays(forceRedetect: Bool = false) {
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
         CGGetActiveDisplayList(16, &displayIDs, &count)
-        
+
         var newStates: [CGDirectDisplayID: DisplayState] = [:]
-        
+
         for i in 0..<Int(count) {
             let displayID = displayIDs[i]
-            if let existing = states[displayID] {
+            if let existing = states[displayID], !forceRedetect {
+                // Reuse the state (keeps the pristine gamma baseline), but
+                // re-check DDC health: sleep/wake breaks IOAVService handles
+                // and the user can disable DDC globally, leaving a stale
+                // .ddcHardware/.ddcHybrid whose writes silently no-op.
+                recheckDDCHealth(existing, for: displayID)
                 newStates[displayID] = existing
+            } else if let existing = states[displayID] {
+                // Forced re-detection (launch, DDC toggle): re-run detection
+                // into the existing state so a captured gamma baseline
+                // survives instead of being re-captured (possibly dimmed).
+                newStates[displayID] = detectMethod(for: displayID, into: existing)
             } else {
-                newStates[displayID] = detectMethod(for: displayID)
+                let state = DisplayState()
+                newStates[displayID] = detectMethod(for: displayID, into: state)
                 // Restore preference if exists
                 if let pref = loadDisplayPreference(for: displayID) {
+                    NSLog("Brightness: restoring saved level %.0f%% for display %d", pref * 100, displayID)
                     setBrightness(pref, for: displayID)
                 }
             }
@@ -138,9 +150,12 @@ class BrightnessController {
         states = newStates
     }
 
-    private func detectMethod(for displayID: CGDirectDisplayID) -> DisplayState {
-        let state = DisplayState()
-
+    /// Detect the brightness method for a display. Pass an existing state to
+    /// preserve its captured gamma baseline across re-detections (a fresh
+    /// capture while dimmed would corrupt the restore point); the state's
+    /// method is updated in place. Gamma tables are only captured when the
+    /// existing state has none.
+    private func detectMethod(for displayID: CGDirectDisplayID, into state: DisplayState) -> DisplayState {
         // Tier 1: DisplayServices (Apple/built-in displays)
         if dsGetBrightness != nil, dsSetBrightness != nil {
             if let current = dsGet(displayID: displayID) {
@@ -160,7 +175,9 @@ class BrightnessController {
 
         // Tier 2: DDC/CI (external monitors with hardware brightness)
         if ddcController.isEnabled && ddcController.supportsDDC(displayID: displayID) {
-            captureOriginalGamma(for: displayID, into: state)
+            if !state.gammaTableCaptured {
+                captureOriginalGamma(for: displayID, into: state)
+            }
             if state.gammaTableCaptured {
                 state.method = .ddcHybrid
                 NSLog("Brightness: display %d using DDC+Gamma hybrid", displayID)
@@ -172,7 +189,9 @@ class BrightnessController {
         }
 
         // Tier 3: Gamma table manipulation (any non-DisplayLink display)
-        captureOriginalGamma(for: displayID, into: state)
+        if !state.gammaTableCaptured {
+            captureOriginalGamma(for: displayID, into: state)
+        }
         if state.gammaTableCaptured {
             state.method = .gamma
             NSLog("Brightness: display %d using Gamma fallback", displayID)
@@ -349,10 +368,12 @@ class BrightnessController {
 
     // MARK: - DDC/CI Control
 
-    /// Re-probe displays
-    func reprobeDisplays() {
+    /// Re-probe displays. Called when the user toggles DDC/CI or after the
+    /// user setting is applied at launch — force re-detection so displays
+    /// don't sit at a stale method (gamma baselines are preserved).
+    func reprobeDisplays(force: Bool = false) {
         ddcController.probeDisplays()
-        probeDisplays()
+        probeDisplays(forceRedetect: force)
     }
 
     // MARK: - Cleanup
@@ -422,9 +443,16 @@ class BrightnessController {
     }
 
     private func loadDisplayPreferences() {
-        if let prefs = UserDefaults.standard.dictionary(forKey: "powermate.brightness.displayPrefs") as? [String: Float] {
-            displayPreferences = prefs
+        // UserDefaults stores values as NSNumber; the old `as? [String: Float]`
+        // cast always failed, so saved per-display levels were never restored.
+        guard let stored = UserDefaults.standard.dictionary(forKey: "powermate.brightness.displayPrefs") else { return }
+        var prefs: [String: Float] = [:]
+        for (key, value) in stored {
+            if let number = value as? NSNumber {
+                prefs[key] = number.floatValue
+            }
         }
+        displayPreferences = prefs
     }
 
     // MARK: - Display Change Listeners
@@ -451,9 +479,8 @@ class BrightnessController {
     }
 
     private func onDisplayReconfigured() {
-        ddcController.probeDisplays()
         probeDisplays()
-        
+
         // Re-apply gamma to all
         for (id, state) in states {
             if (state.method == .gamma || state.method == .ddcHybrid) && state.gammaLevel < 1.0 {
@@ -467,6 +494,23 @@ class BrightnessController {
         NSLog("Brightness: System woke from sleep, re-probing displays...")
         ddcController.probeDisplays()
         onDisplayReconfigured()
+    }
+
+    /// Re-check a cached DDC method on an attached display. Sleep/wake can
+    /// break IOAVService handles and the user can disable DDC globally; in
+    /// both cases the cached .ddcHardware/.ddcHybrid method silently
+    /// no-ops, so fall back to Gamma instead. DisplayServices state is
+    /// left alone (its health check runs on every setBrightness).
+    private func recheckDDCHealth(_ state: DisplayState, for displayID: CGDirectDisplayID) {
+        guard state.method == .ddcHardware || state.method == .ddcHybrid else { return }
+        guard ddcController.isEnabled, ddcController.supportsDDC(displayID: displayID) else {
+            NSLog("Brightness: DDC no longer healthy for %d — falling back to Gamma", displayID)
+            if !state.gammaTableCaptured {
+                captureOriginalGamma(for: displayID, into: state)
+            }
+            state.method = state.gammaTableCaptured ? .gamma : .overlay
+            return
+        }
     }
 
     // MARK: - Gamma Implementation

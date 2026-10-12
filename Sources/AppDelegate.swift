@@ -650,9 +650,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         brightnessController.ddcController.isEnabled.toggle()
         let enabled = brightnessController.ddcController.isEnabled
         NSLog("DDC/CI: %@", enabled ? "enabled" : "disabled")
-        if enabled {
-            brightnessController.reprobeDisplays()
-        }
+        brightnessController.reprobeDisplays(force: true)
         UserDefaults.standard.set(enabled, forKey: "powermate.ddc.enabled")
         refreshMenu()
     }
@@ -1279,9 +1277,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if d.object(forKey: "powermate.midi.channel") != nil {
             midiController.channel = UInt8(d.integer(forKey: "powermate.midi.channel"))
         }
-        // DDC/CI enabled
+        // DDC/CI enabled. States were probed during BrightnessController.init
+        // with DDC defaulted on; re-probe so a saved "disabled" setting takes
+        // effect for methods already cached as DDC.
         if d.object(forKey: "powermate.ddc.enabled") != nil {
-            brightnessController.ddcController.isEnabled = d.bool(forKey: "powermate.ddc.enabled")
+            let savedEnabled = d.bool(forKey: "powermate.ddc.enabled")
+            if savedEnabled != brightnessController.ddcController.isEnabled {
+                brightnessController.ddcController.isEnabled = savedEnabled
+                brightnessController.reprobeDisplays(force: true)
+            }
         }
         // Sync launch-at-login with actual SMAppService status
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
