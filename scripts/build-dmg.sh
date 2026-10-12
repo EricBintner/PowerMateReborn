@@ -60,10 +60,42 @@ if [[ -d "$PROJECT_DIR/Sources/Resources" ]]; then
     cp -R "$PROJECT_DIR/Sources/Resources/"* "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
 fi
 
-# Copy Sparkle Framework into bundle
+# Copy Sparkle Framework into bundle.
+# Discover the framework wherever SwiftPM put it this time — the old hardcoded
+# .build/artifacts path only exists after certain SwiftPM versions ran, and a
+# missing framework produced the "Library not loaded: Sparkle" launch crash
+# reported in issue #1.
 echo "==> Embedding Sparkle.framework..."
 mkdir -p "$APP_BUNDLE/Contents/Frameworks"
-cp -R "$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/"
+SPARKLE_FRAMEWORK="$(find "$PROJECT_DIR/.build" -type d -name "Sparkle.framework" -not -path "*/checkouts/*" 2>/dev/null | head -1)"
+if [[ -z "$SPARKLE_FRAMEWORK" || ! -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "ERROR: Sparkle.framework not found in SwiftPM build output. Run 'swift build' first."
+    exit 1
+fi
+cp -R "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/"
+
+# Verify the framework's binary exists inside the copy and derive its version dir
+SPARKLE_BINARY="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/Current/Sparkle"
+if [[ ! -f "$SPARKLE_BINARY" ]]; then
+    SPARKLE_BINARY="$(find "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions" -type f -name Sparkle -print -quit 2>/dev/null)"
+fi
+if [[ -z "$SPARKLE_BINARY" || ! -f "$SPARKLE_BINARY" ]]; then
+    echo "ERROR: Sparkle binary not found inside bundled framework"
+    exit 1
+fi
+SPARKLE_VERSION="$(basename "$(dirname "$SPARKLE_BINARY")")"
+
+# Rewrite the binary's Sparkle load command to point inside the bundle, and
+# add the rpath. Fail loudly if the dependency can't be parsed — a silent
+# skip ships the exact dyld crash reported in issue #1.
+SPARKLE_DEP="$(otool -L "$APP_BUNDLE/Contents/MacOS/$APP_NAME" | grep 'Sparkle.framework' | head -n 1 | awk '{print $1}')"
+if [[ -z "$SPARKLE_DEP" ]]; then
+    echo "ERROR: Sparkle framework dependency not found in binary's load commands"
+    exit 1
+fi
+install_name_tool -change "$SPARKLE_DEP" \
+    "@executable_path/../Frameworks/Sparkle.framework/Versions/$SPARKLE_VERSION/Sparkle" \
+    "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # Generate Info.plist
@@ -105,11 +137,22 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <string>SiMfU+5TNl47TWuyIcSiH2bIxGIukFt0UEz9XMl5NiE=</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>PowerMateReborn uses Bluetooth to communicate with the Griffin PowerMate Bluetooth controller.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>PowerMateReborn uses AppleScript to set system volume on devices without hardware volume control, and to put the display to sleep.</string>
 </dict>
 </plist>
 PLIST
 
 echo "    Version: $VERSION ($BUILD_NUMBER)"
+
+# Guard against shipping a stale bundle: the packaged Info.plist must report
+# the version this run was invoked with (the v1.1.0 release shipped a DMG that
+# identified as v1.0.0 — see docs/RELEASE_PITFALLS.md).
+PACKAGED_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP_BUNDLE/Contents/Info.plist")"
+if [[ "$PACKAGED_VERSION" != "$VERSION" ]]; then
+    echo "ERROR: packaged version ($PACKAGED_VERSION) != requested version ($VERSION) — refusing to ship a stale bundle"
+    exit 1
+fi
 
 # Strip extended attributes (resource forks, quarantine) that block codesign
 echo "==> Stripping extended attributes..."
@@ -118,39 +161,39 @@ xattr -cr "$APP_BUNDLE"
 # Code-sign the app bundle with Developer ID
 echo "==> Code-signing with Developer ID..."
 
-# Sign embedded frameworks first (inside-out signing)
+# Sign embedded frameworks first (inside-out signing).
+# Nested XPCs may not exist in every Sparkle build; sign the ones that do,
+# but never mask a failure on the ones that do — a mismatched nested
+# signature ships a "damaged app" to users.
 if [[ -d "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" ]]; then
-    codesign --force --options runtime \
-        --sign "$SIGN_IDENTITY" \
-        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" 2>/dev/null || true
-    codesign --force --options runtime \
-        --sign "$SIGN_IDENTITY" \
-        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" 2>/dev/null || true
-    codesign --force --options runtime \
-        --sign "$SIGN_IDENTITY" \
-        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" 2>/dev/null || true
-    codesign --force --options runtime \
-        --sign "$SIGN_IDENTITY" \
-        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app" 2>/dev/null || true
-    codesign --force --options runtime \
-        --sign "$SIGN_IDENTITY" \
+    for NESTED in \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"; do
+        if [[ -e "$NESTED" ]]; then
+            codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$NESTED"
+        fi
+    done
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
         "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 fi
 
 # Sign the main app bundle
 if [[ -f "$ENTITLEMENTS" ]]; then
-    codesign --force --options runtime \
+    codesign --force --options runtime --timestamp \
         --entitlements "$ENTITLEMENTS" \
         --sign "$SIGN_IDENTITY" \
         "$APP_BUNDLE"
 else
-    codesign --force --options runtime \
+    codesign --force --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" \
         "$APP_BUNDLE"
 fi
 
-# Verify signature
+# Verify signature — fail the build if the bundle doesn't verify
 echo "    Verifying signature..."
+codesign --verify --deep --strict "$APP_BUNDLE"
 codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 | grep -E "(Authority|TeamIdentifier|Signature)" || true
 
 echo "==> Creating .dmg..."
