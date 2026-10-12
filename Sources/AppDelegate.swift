@@ -1288,7 +1288,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d ddc=%d midi=CC%d/ch%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin, brightnessController.ddcController.isEnabled, midiController.ccNumber, midiController.channel + 1)
     }
 
-    private func saveSettings() {
+    /// Save settings. Also called from the SIGTERM/SIGINT dispatch handler in
+    /// main.swift, so it must be callable outside this class.
+    func saveSettings() {
         let d = UserDefaults.standard
         d.set(currentMode.rawValue, forKey: "powermate.currentMode")
         d.set(enabledModes.map { $0.rawValue }, forKey: "powermate.enabledModes")
