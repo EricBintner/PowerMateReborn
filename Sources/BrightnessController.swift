@@ -427,8 +427,22 @@ class BrightnessController {
 
     // MARK: - Per-Display Preferences
 
+    /// Identity key for a display's saved brightness preference.
+    ///
+    /// vendor-model-serial alone collides when two identical external
+    /// monitors are attached (CGDisplaySerialNumber is 0 for many externals),
+    /// so identical monitors would fight over one prefs entry. A registry
+    /// location tiebreaker disambiguates per port. Caveat (per the
+    /// capability-audit session): port location can swap across reboots on
+    /// some GPUs, so treat the saved level as a hint — a miss just falls
+    /// back to the default level, same as today's behavior.
     private func displaySerialKey(for displayID: CGDirectDisplayID) -> String {
-        return "\(CGDisplayVendorNumber(displayID))-\(CGDisplayModelNumber(displayID))-\(CGDisplaySerialNumber(displayID))"
+        let base = "\(CGDisplayVendorNumber(displayID))-\(CGDisplayModelNumber(displayID))-\(CGDisplaySerialNumber(displayID))"
+        // Only append a location tiebreaker when it actually distinguishes
+        // something: displays with a real serial number are unique already.
+        guard CGDisplaySerialNumber(displayID) == 0 else { return base }
+        guard let location = ddcController.portLocation(for: displayID) else { return base }
+        return "\(base)@\(location)"
     }
 
     private func saveDisplayPreference(level: Float, for displayID: CGDirectDisplayID) {

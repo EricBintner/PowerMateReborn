@@ -20,6 +20,10 @@ class DDCController {
         let service: io_service_t
         let name: String
         let supportsDDC: Bool
+        /// Registry leaf of the matched IOAVService — per-port identity for
+        /// disambiguating identical external monitors (serial 0). Cached at
+        /// probe time so the per-tick prefs key lookup doesn't walk IOKit.
+        var portLocation: String?
         var cachedBrightness: UInt8?
         var cachedVolume: UInt8?
     }
@@ -121,6 +125,7 @@ class DDCController {
                     service: service,
                     name: name,
                     supportsDDC: supportsDDC,
+                    portLocation: registryLeaf(of: service),
                     cachedBrightness: cachedBrightness,
                     cachedVolume: nil
                 )
@@ -215,6 +220,24 @@ class DDCController {
     }
 
     // MARK: - IOAVService Lookup
+
+    /// Per-port location for a display, cached at probe time. Disambiguates
+    /// identical external monitors (serial 0) in brightness preferences; two
+    /// same-model monitors on different ports get different keys. Returns
+    /// nil when the display has no IOAVService (HDMI/DisplayLink etc.) —
+    /// callers fall back to the bare vendor-model-serial key. Caveat: port
+    /// location can swap across reboots on some GPUs, so a saved level is a
+    /// hint, not a contract (a miss just falls back to the default level).
+    func portLocation(for displayID: CGDirectDisplayID) -> String? {
+        return displays[displayID]?.portLocation
+    }
+
+    /// Registry-plane leaf of an IO service — the per-port identity.
+    private func registryLeaf(of service: io_service_t) -> String? {
+        var buf = [CChar](repeating: 0, count: 2048)
+        guard IORegistryEntryGetPath(service, kIOServicePlane, &buf) == KERN_SUCCESS else { return nil }
+        return String(cString: buf).split(separator: "/").last.map(String.init)
+    }
 
     private func findIOAVService(for displayID: CGDirectDisplayID) -> io_service_t {
         // On Apple Silicon, IOAVService instances correspond to display outputs
