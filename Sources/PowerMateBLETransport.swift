@@ -30,6 +30,16 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
     // Reconnection
     private var shouldScan: Bool = false
 
+    // Scan timeout: an endless scanForPeripherals keeps the Bluetooth radio
+    // busy whenever no BLE PowerMate is in range (contributing to
+    // bluetoothd's PreventUserIdleSystemSleep assertion). Scan for a window,
+    // then stop and retry later with a capped backoff.
+    private var scanTimeoutTimer: Timer?
+    private var scanRetryTimer: Timer?
+    private var scanRetryDelay: TimeInterval = 2.0
+    private let scanWindow: TimeInterval = 10.0
+    private let maxScanRetryDelay: TimeInterval = 300.0
+
     var isConnected: Bool {
         return peripheral?.state == .connected
     }
@@ -42,10 +52,13 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
 
     func start() {
         shouldScan = true
+        scanRetryDelay = 2.0
         // CBCentralManager init triggers a state update callback;
         // scanning begins in centralManagerDidUpdateState when state == .poweredOn
+        // Don't show the system "Turn on Bluetooth?" nag — most users run the
+        // USB PowerMate and shouldn't be prompted about Bluetooth.
         centralManager = CBCentralManager(delegate: self, queue: nil, options: [
-            CBCentralManagerOptionShowPowerAlertKey: true
+            CBCentralManagerOptionShowPowerAlertKey: false
         ])
     }
 
@@ -55,6 +68,7 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
             centralManager?.cancelPeripheralConnection(peripheral)
         }
         centralManager?.stopScan()
+        invalidateScanTimers()
         peripheral = nil
         ledCharacteristic = nil
     }
@@ -74,6 +88,33 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
         cm.scanForPeripherals(withServices: [kPowerMateBLEServiceUUID], options: [
             CBCentralManagerScanOptionAllowDuplicatesKey: false
         ])
+
+        // Time-box the scan: scanning forever keeps the radio busy (and
+        // bluetoothd awake) when no BLE PowerMate is in range.
+        scanTimeoutTimer?.invalidate()
+        scanTimeoutTimer = Timer.scheduledTimer(withTimeInterval: scanWindow, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.centralManager?.stopScan()
+            NSLog("BLE: No device found in %.0fs — stopping scan, retrying in %.0fs", self.scanWindow, self.scanRetryDelay)
+            self.scheduleScanRetry()
+        }
+    }
+
+    private func scheduleScanRetry() {
+        scanRetryTimer?.invalidate()
+        scanRetryTimer = Timer.scheduledTimer(withTimeInterval: scanRetryDelay, repeats: false) { [weak self] _ in
+            guard let self = self, self.shouldScan, self.peripheral?.state != .connected else { return }
+            // Exponential backoff capped at 5 minutes
+            self.scanRetryDelay = min(self.scanRetryDelay * 2, self.maxScanRetryDelay)
+            self.startScanning()
+        }
+    }
+
+    private func invalidateScanTimers() {
+        scanTimeoutTimer?.invalidate()
+        scanTimeoutTimer = nil
+        scanRetryTimer?.invalidate()
+        scanRetryTimer = nil
     }
 }
 
@@ -117,26 +158,25 @@ extension PowerMateBLETransport: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         NSLog("BLE: Failed to connect: %@", error?.localizedDescription ?? "unknown")
         self.peripheral = nil
-        // Retry scanning
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.startScanning()
-        }
+        // Retry scanning (reset backoff — the device is nearby, this is likely transient)
+        scanRetryDelay = 2.0
+        scheduleScanRetry()
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         NSLog("BLE: Disconnected from PowerMate Bluetooth: %@", error?.localizedDescription ?? "clean")
         self.ledCharacteristic = nil
         self.lastButtonState = false
+        self.peripheral = nil
 
         DispatchQueue.main.async {
             self.transportDelegate?.transportDidDisconnect(self)
         }
 
-        // Auto-reconnect
+        // Auto-reconnect (reset backoff — we were just connected)
         if shouldScan {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.startScanning()
-            }
+            scanRetryDelay = 2.0
+            scheduleScanRetry()
         }
     }
 }
@@ -162,7 +202,23 @@ extension PowerMateBLETransport: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard let chars = service.characteristics else { return }
+        // Discovery error or an empty characteristic list: don't strand the
+        // device in a silent "connected but unusable" state — drop it and
+        // rescan so the icon reflects reality and reconnection is possible.
+        if let error = error {
+            NSLog("BLE: Characteristic discovery failed: %@ — rescanning", error.localizedDescription)
+            centralManager?.cancelPeripheralConnection(peripheral)
+            self.peripheral = nil
+            scheduleScanRetry()
+            return
+        }
+        guard let chars = service.characteristics else {
+            NSLog("BLE: No characteristics discovered — rescanning")
+            centralManager?.cancelPeripheralConnection(peripheral)
+            self.peripheral = nil
+            scheduleScanRetry()
+            return
+        }
         var subscribedCount = 0
 
         for char in chars {
@@ -188,11 +244,18 @@ extension PowerMateBLETransport: CBPeripheralDelegate {
             }
         }
 
-        // If we subscribed to at least one characteristic, we're operational
+        // If we subscribed to at least one characteristic, we're operational.
+        // Otherwise the device is unusable (unexpected firmware) — rescan
+        // rather than leaving it silently "connected".
         if subscribedCount > 0 {
             DispatchQueue.main.async {
                 self.transportDelegate?.transportDidConnect(self)
             }
+        } else {
+            NSLog("BLE: No notifiable characteristics — rescanning")
+            centralManager?.cancelPeripheralConnection(peripheral)
+            self.peripheral = nil
+            scheduleScanRetry()
         }
     }
 
