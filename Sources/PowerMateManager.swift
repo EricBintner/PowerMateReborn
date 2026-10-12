@@ -37,7 +37,7 @@ protocol PowerMateTransport: AnyObject {
 
 /// Central manager that owns all transports (USB, BLE) and performs unified gesture detection.
 /// AppDelegate talks only to this class via `PowerMateDelegate`.
-class PowerMateManager: PowerMateTransportDelegate {
+class PowerMateManager: NSObject, PowerMateTransportDelegate {
     weak var delegate: PowerMateDelegate?
 
     // Transports
@@ -57,7 +57,9 @@ class PowerMateManager: PowerMateTransportDelegate {
     // LED state (broadcast to all transports)
     private(set) var ledBrightness: UInt8 = 0
 
-    init() {}
+    override init() {
+        super.init()
+    }
 
     // MARK: - Transport Management
 
@@ -115,6 +117,10 @@ class PowerMateManager: PowerMateTransportDelegate {
     func transport(_ transport: PowerMateTransport, didRotate delta: Int) {
         if buttonDownTime != nil {
             rotatedWhilePressed = true
+            // A press-rotate is not a long press: cancel the pending long-press
+            // timer so it doesn't fire (mode switch) mid-adjustment.
+            longPressTimer?.invalidate()
+            longPressTimer = nil
         }
         delegate?.powerMateDidRotate(delta: delta)
     }
@@ -140,16 +146,11 @@ class PowerMateManager: PowerMateTransportDelegate {
         singleTapTimer?.invalidate()
         singleTapTimer = nil
 
-        // Start long-press timer
+        // Start long-press timer. Run-loop mode .common so the timer keeps
+        // firing even while a menu's event-tracking loop is open.
         longPressTimer?.invalidate()
-        longPressTimer = Timer.scheduledTimer(withTimeInterval: longPressThreshold, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.longPressFired = true
-            self.tapCount = 0
-            self.singleTapTimer?.invalidate()
-            self.singleTapTimer = nil
-            self.delegate?.powerMateButtonLongPressed()
-        }
+        longPressTimer = Timer(timeInterval: longPressThreshold, target: self, selector: #selector(handleLongPress(_:)), userInfo: nil, repeats: false)
+        RunLoop.main.add(longPressTimer!, forMode: .common)
     }
 
     private func onButtonUp() {
@@ -163,12 +164,16 @@ class PowerMateManager: PowerMateTransportDelegate {
             buttonDownTime = nil
             longPressFired = false
             rotatedWhilePressed = false
+            tapCount = 0
             return
         }
 
+        // Rotation during the press consumed this gesture; also reset tapCount
+        // so a later lone tap isn't misread as a double tap (mute/sleep!)
         guard !rotatedWhilePressed else {
             buttonDownTime = nil
             rotatedWhilePressed = false
+            tapCount = 0
             return
         }
 
@@ -181,17 +186,30 @@ class PowerMateManager: PowerMateTransportDelegate {
             singleTapTimer = nil
             delegate?.powerMateButtonDoubleTapped()
         } else {
-            // First tap — wait for possible second tap
+            // First tap — wait for possible second tap (.common mode so the
+            // timer survives while a menu's event-tracking loop is open)
             singleTapTimer?.invalidate()
-            singleTapTimer = Timer.scheduledTimer(withTimeInterval: doubleTapInterval, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                self.tapCount = 0
-                self.delegate?.powerMateButtonPressed()
-            }
+            singleTapTimer = Timer(timeInterval: doubleTapInterval, target: self, selector: #selector(handleSingleTapTimeout(_:)), userInfo: nil, repeats: false)
+            RunLoop.main.add(singleTapTimer!, forMode: .common)
         }
 
         buttonDownTime = nil
         longPressFired = false
+    }
+
+    // Timer actions (selector-based so they run in .common run-loop mode)
+
+    @objc private func handleLongPress(_ timer: Timer) {
+        longPressFired = true
+        tapCount = 0
+        singleTapTimer?.invalidate()
+        singleTapTimer = nil
+        delegate?.powerMateButtonLongPressed()
+    }
+
+    @objc private func handleSingleTapTimeout(_ timer: Timer) {
+        tapCount = 0
+        delegate?.powerMateButtonPressed()
     }
 
     private func resetGestureState() {
