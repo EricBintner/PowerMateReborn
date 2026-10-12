@@ -26,7 +26,9 @@ PowerMateDriver/
     ├── MIDIController.swift               CoreMIDI virtual source, CC + notes
     ├── OSCController.swift                Open Sound Control UDP sender
     ├── CustomModeEngine.swift             Per-app profiles, action execution, extended press
-    ├── CustomModeSettingsView.swift        SwiftUI settings window for Custom mode
+    ├── CustomModeSettingsView.swift        Custom profile editor views (used by Settings window)
+    ├── SettingsModel.swift                Observable settings state for the Settings window
+    ├── SettingsView.swift                  SwiftUI Settings window (sidebar sections)
     ├── OSDOverlay.swift                   Native volume/brightness HUD overlay
     └── MenuBarIcon.swift                  Custom mode-specific menu bar icons
 ```

@@ -32,12 +32,21 @@ enum KnobMode: String, CaseIterable {
     }
 }
 
+/// LED behavior as a single setting (Settings window). Consolidates the old
+/// menu's Follow Level toggle + Off/Dim/Brightness static actions.
+enum LEDMode: Equatable {
+    case followLevel
+    case off
+    case dim
+    case bright
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeChangeDelegate, SPUUpdaterDelegate {
     static private(set) var shared: AppDelegate!
 
     private var statusItem: NSStatusItem!
     private var powerMate = PowerMateManager()
-    private var volumeController = VolumeController()
+    private(set) var volumeController = VolumeController()
     private(set) var brightnessController = BrightnessController()
     private(set) var midiController = MIDIController()
     private let customEngine = CustomModeEngine.shared
@@ -45,24 +54,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private let osd = OSDOverlay()
 
     // Multi-mode
-    private var currentMode: KnobMode = .volume
-    private var enabledModes: [KnobMode] = [.volume, .brightness]
+    private(set) var currentMode: KnobMode = .volume
+    private(set) var enabledModes: [KnobMode] = [.volume, .brightness]
 
     // Settings
-    private var stepSize: Float = 0.03  // 3% per rotation tick
-    private var ledFollowsLevel: Bool = true
+    private(set) var stepSize: Float = 0.03  // 3% per rotation tick
+    private(set) var ledFollowsLevel: Bool = true
 
     // Launch at login
-    private var launchAtLogin: Bool = false
+    private(set) var launchAtLogin: Bool = false
 
     // Snap-to-value state (double-tap toggles)
     private var volumeBeforeSnap: Float?
     private var brightnessBeforeSnap: Float?
-    private var volumeSnapValue: Float = 0.20      // 20%
-    private var brightnessSnapValue: Float = 0.67  // 67%
+    private(set) var volumeSnapValue: Float = 0.20      // 20%
+    private(set) var brightnessSnapValue: Float = 0.67  // 67%
 
     // UI Window Controllers
-    private var customSettingsWindowController: NSWindowController?
+    private var settingsWindowController: NSWindowController?
     private var issueReportWindowController: NSWindowController?
 
     override init() {
@@ -240,224 +249,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         menu.addItem(NSMenuItem.separator())
 
-        // --- Settings Submenus ---
-
-        // Output Device Picker
-        let deviceMenu = NSMenu()
-        deviceMenu.autoenablesItems = false
-        let defaultID = volumeController.activeDeviceID
-        var activeDeviceName = "Default"
-        for dev in volumeController.allOutputDevices {
-            let isActive = dev.deviceID == defaultID
-            // Clean up name: remove common suffixes for a cleaner native look
-            var cleanName = dev.name
-            if cleanName.hasSuffix(" Speakers") { cleanName = cleanName.replacingOccurrences(of: " Speakers", with: "") }
-            
-            if isActive { activeDeviceName = cleanName }
-
-            let item = NSMenuItem(
-                title: cleanName,
-                action: #selector(switchAudioDevice(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.tag = Int(dev.deviceID)
-            if isActive { item.state = .on }
-            
-            // Add icon indicating control capability
-            let iconName = (dev.hasVolumeScalar || dev.hasChannelVolume || dev.hasVirtualMaster) ? "speaker.wave.2.fill" : "speaker.slash.fill"
-            if let img = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
-                item.image = img
-            }
-            
-            deviceMenu.addItem(item)
+        // Settings — all advanced configuration lives in the Settings window.
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        // Use an empty image to perfectly align the text with other menu items
+        if let templateImg = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil) {
+            settingsItem.image = NSImage(size: templateImg.size)
         }
-        let deviceItem = NSMenuItem(title: "Output Device: \(activeDeviceName)", action: nil, keyEquivalent: "")
-        deviceItem.submenu = deviceMenu
-        if let img = NSImage(systemSymbolName: "headphones", accessibilityDescription: nil) {
-            deviceItem.image = img
-        }
-        menu.addItem(deviceItem)
-
-        // Enabled Modes Config
-        let modesMenu = NSMenu()
-        modesMenu.autoenablesItems = false
-        for mode in KnobMode.allCases {
-            let item = NSMenuItem(title: mode.rawValue, action: #selector(toggleMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = mode.rawValue
-            item.state = enabledModes.contains(mode) ? .on : .off
-            modesMenu.addItem(item)
-        }
-        let modesItem = NSMenuItem(title: "Enabled Modes", action: nil, keyEquivalent: "")
-        modesItem.submenu = modesMenu
-        if let img = NSImage(systemSymbolName: "checklist", accessibilityDescription: nil) {
-            modesItem.image = img
-        }
-        menu.addItem(modesItem)
-
-        // Snap Config
-        let snapMenu = NSMenu()
-        snapMenu.autoenablesItems = false
-        
-        // Volume Snap
-        let volumeSnapMenu = NSMenu()
-        for (label, value) in [("Mute (0%)", Float(0.0)), ("Low (20%)", Float(0.20)), ("Medium (50%)", Float(0.50)), ("High (80%)", Float(0.80))] {
-            let item = NSMenuItem(title: label, action: #selector(volumeSnapChanged(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            if abs(volumeSnapValue - value) < 0.001 { item.state = .on }
-            volumeSnapMenu.addItem(item)
-        }
-        let volSnapItem = NSMenuItem(title: "Volume Tap Level", action: nil, keyEquivalent: "")
-        volSnapItem.submenu = volumeSnapMenu
-        if let img = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil) {
-            volSnapItem.image = img
-        }
-        snapMenu.addItem(volSnapItem)
-        
-        // Brightness Snap
-        let brightnessSnapMenu = NSMenu()
-        for (label, value) in [("Dark (15%)", Float(0.15)), ("Dim (33%)", Float(0.33)), ("Medium (50%)", Float(0.50)), ("Bright (67%)", Float(0.67)), ("Max (100%)", Float(1.0))] {
-            let item = NSMenuItem(title: label, action: #selector(brightnessSnapChanged(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            if abs(brightnessSnapValue - value) < 0.001 { item.state = .on }
-            brightnessSnapMenu.addItem(item)
-        }
-        let brightSnapItem = NSMenuItem(title: "Brightness Tap Level", action: nil, keyEquivalent: "")
-        brightSnapItem.submenu = brightnessSnapMenu
-        if let img = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
-            brightSnapItem.image = img
-        }
-        snapMenu.addItem(brightSnapItem)
-        
-        let snapItem = NSMenuItem(title: "Tap Actions", action: nil, keyEquivalent: "")
-        snapItem.submenu = snapMenu
-        if let img = NSImage(systemSymbolName: "hand.tap.fill", accessibilityDescription: nil) {
-            snapItem.image = img
-        }
-        menu.addItem(snapItem)
-        
-        // Sensitivity Config
-        let sensitivityMenu = NSMenu()
-        sensitivityMenu.autoenablesItems = false
-        var activeSensitivityName = "Medium"
-        for (label, value) in [("Low (1%)", Float(0.01)), ("Medium (3%)", Float(0.03)), ("High (5%)", Float(0.05)), ("Very High (8%)", Float(0.08))] {
-            let item = NSMenuItem(title: label, action: #selector(sensitivityChanged(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            if abs(stepSize - value) < 0.001 { 
-                item.state = .on 
-                activeSensitivityName = label.components(separatedBy: " ").first ?? label
-            }
-            sensitivityMenu.addItem(item)
-        }
-        let sensitivityItem = NSMenuItem(title: "Sensitivity: \(activeSensitivityName)", action: nil, keyEquivalent: "")
-        sensitivityItem.submenu = sensitivityMenu
-        if let img = NSImage(systemSymbolName: "dial.min", accessibilityDescription: nil) {
-            sensitivityItem.image = img
-        }
-        menu.addItem(sensitivityItem)
-
-        // LED Config
-        let ledMenu = NSMenu()
-        ledMenu.autoenablesItems = false
-        let ledFollowItem = NSMenuItem(title: "Follow Level", action: #selector(ledFollowLevel(_:)), keyEquivalent: "")
-        ledFollowItem.target = self
-        ledFollowItem.state = ledFollowsLevel ? .on : .off
-        ledMenu.addItem(ledFollowItem)
-        ledMenu.addItem(NSMenuItem.separator())
-
-        for (title, action) in [("Off", #selector(ledOff)), ("Dim", #selector(ledDim)), ("Bright", #selector(ledBright))] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            ledMenu.addItem(item)
-        }
-
-        let ledStateText = ledFollowsLevel ? "Follow Level" : "Static/Effect"
-        let ledItem = NSMenuItem(title: "LED Effect: \(ledStateText)", action: nil, keyEquivalent: "")
-        ledItem.submenu = ledMenu
-        if let img = NSImage(systemSymbolName: "lightbulb", accessibilityDescription: nil) {
-            ledItem.image = img
-        }
-        menu.addItem(ledItem)
-
-        // MIDI Settings
-        let midiMenu = NSMenu()
-        midiMenu.autoenablesItems = false
-
-        // CC Number picker
-        let ccHeader = NSMenuItem(title: "CC Number", action: nil, keyEquivalent: "")
-        ccHeader.isEnabled = false
-        midiMenu.addItem(ccHeader)
-        for (label, cc): (String, UInt8) in [("CC 1 — Mod Wheel", 1), ("CC 7 — Volume", 7), ("CC 11 — Expression", 11), ("CC 74 — Filter", 74)] {
-            let item = NSMenuItem(title: label, action: #selector(midiCCChanged(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = Int(cc)
-            if midiController.ccNumber == cc { item.state = .on }
-            midiMenu.addItem(item)
-        }
-
-        midiMenu.addItem(NSMenuItem.separator())
-
-        // Channel picker
-        let chHeader = NSMenuItem(title: "Channel", action: nil, keyEquivalent: "")
-        chHeader.isEnabled = false
-        midiMenu.addItem(chHeader)
-        for ch: UInt8 in [1, 2, 10, 16] {
-            let item = NSMenuItem(title: "Ch \(ch)", action: #selector(midiChannelChanged(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = Int(ch)
-            if midiController.channel == ch - 1 { item.state = .on }
-            midiMenu.addItem(item)
-        }
-
-        let midiItem = NSMenuItem(title: "MIDI: CC \(midiController.ccNumber) / Ch \(midiController.channel + 1)", action: nil, keyEquivalent: "")
-        midiItem.submenu = midiMenu
-        if let img = NSImage(systemSymbolName: "pianokeys", accessibilityDescription: nil) {
-            midiItem.image = img
-        }
-        menu.addItem(midiItem)
-
-        // Hardware Brightness (DDC/CI) toggle
-        let ddcEnabled = brightnessController.ddcController.isEnabled
-        let ddcItem = NSMenuItem(title: "Hardware Brightness (DDC/CI)", action: #selector(toggleDDC(_:)), keyEquivalent: "")
-        ddcItem.target = self
-        ddcItem.state = ddcEnabled ? .on : .off
-        if let img = NSImage(systemSymbolName: "display", accessibilityDescription: nil) {
-            ddcItem.image = img
-        }
-        menu.addItem(ddcItem)
-
-        // Sync Brightness toggle
-        let syncEnabled = brightnessController.syncDisplays
-        let syncItem = NSMenuItem(title: "Sync All Displays", action: #selector(toggleBrightnessSync(_:)), keyEquivalent: "")
-        syncItem.target = self
-        syncItem.state = syncEnabled ? .on : .off
-        if let img = NSImage(systemSymbolName: "display.2", accessibilityDescription: nil) {
-            syncItem.image = img
-        }
-        menu.addItem(syncItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Custom Mode Settings
-        let customSettingsItem = NSMenuItem(title: "Custom Mode Settings...", action: #selector(showCustomSettings), keyEquivalent: "")
-        customSettingsItem.target = self
-        if let img = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil) {
-            customSettingsItem.image = img
-        }
-        menu.addItem(customSettingsItem)
-
-        // Launch at Login toggle
-        let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
-        loginItem.target = self
-        loginItem.state = launchAtLogin ? .on : .off
-        if let img = NSImage(systemSymbolName: "power", accessibilityDescription: nil) {
-            loginItem.image = img
-        }
-        menu.addItem(loginItem)
+        menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -557,8 +356,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         refreshMenu()
     }
 
-    @objc private func switchAudioDevice(_ sender: NSMenuItem) {
-        let deviceID = AudioDeviceID(sender.tag)
+    @objc private func toggleMuteClicked() {
+        volumeController.toggleMute()
+        updateLEDForLevel()
+        refreshMenu()
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
+    }
+
+    // MARK: - Settings Mutators
+    // Single entry points for changing settings (used by the Settings window).
+    // Each: apply -> persist -> side effects -> refresh menu/state as needed ->
+    // notify SettingsModel so the Settings window re-syncs.
+
+    func setModeEnabled(_ mode: KnobMode, _ enabled: Bool) {
+        if enabled {
+            if !enabledModes.contains(mode) {
+                enabledModes.append(mode)
+            }
+        } else if enabledModes.count > 1, enabledModes.contains(mode) {
+            // Don't allow disabling the last enabled mode
+            enabledModes.removeAll { $0 == mode }
+            if currentMode == mode {
+                currentMode = enabledModes[0]
+                updateStatusDisplay()
+                updateLEDForLevel()
+            }
+        } else {
+            return  // last enabled mode: refuse
+        }
+        saveSettings()
+        refreshMenu()
+        SettingsModel.shared.refresh()
+    }
+
+    func setActiveDevice(_ deviceID: AudioDeviceID) {
+        guard deviceID != volumeController.activeDeviceID else { return }
         volumeController.setActiveDevice(deviceID)
         // Remember this preference: "when current default is X, use device Y"
         let defaultID = volumeController.allOutputDevices.first(where: {
@@ -585,109 +420,119 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         NSLog("Audio device switched to ID %d", deviceID)
         updateLEDForLevel()
         refreshMenu()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func toggleMuteClicked() {
-        volumeController.toggleMute()
-        updateLEDForLevel()
-        refreshMenu()
+    func setStepSize(_ value: Float) {
+        guard value != stepSize else { return }
+        stepSize = value
+        saveSettings()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func toggleMode(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let mode = KnobMode(rawValue: rawValue) else { return }
+    func setVolumeSnap(_ value: Float) {
+        guard value != volumeSnapValue else { return }
+        volumeSnapValue = value
+        saveSettings()
+        SettingsModel.shared.refresh()
+    }
 
-        if enabledModes.contains(mode) {
-            // Don't allow disabling the last mode or the current mode
-            if enabledModes.count > 1 {
-                enabledModes.removeAll { $0 == mode }
-                if currentMode == mode {
-                    currentMode = enabledModes[0]
-                    updateStatusDisplay()
-                    updateLEDForLevel()
-                }
-            }
-        } else {
-            enabledModes.append(mode)
+    func setBrightnessSnap(_ value: Float) {
+        guard value != brightnessSnapValue else { return }
+        brightnessSnapValue = value
+        saveSettings()
+        SettingsModel.shared.refresh()
+    }
+
+    func setLEDMode(_ mode: LEDMode) {
+        switch mode {
+        case .followLevel:
+            ledFollowsLevel = true
+            updateLEDForLevel()
+        case .off:
+            ledFollowsLevel = false
+            powerMate.setLEDBrightness(0)
+        case .dim:
+            ledFollowsLevel = false
+            powerMate.setLEDBrightness(64)
+        case .bright:
+            ledFollowsLevel = false
+            powerMate.setLEDBrightness(255)
         }
-        refreshMenu()
+        saveSettings()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func sensitivityChanged(_ sender: NSMenuItem) {
-        if let value = sender.representedObject as? Float {
-            stepSize = value
-        }
-        refreshMenu()
+    func setMIDICC(_ cc: UInt8) {
+        guard cc != midiController.ccNumber else { return }
+        midiController.ccNumber = cc
+        NSLog("MIDI: CC number changed to %d", cc)
+        saveSettings()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func volumeSnapChanged(_ sender: NSMenuItem) {
-        if let value = sender.representedObject as? Float {
-            volumeSnapValue = value
-        }
-        refreshMenu()
+    func setMIDIChannel(_ channel: UInt8) {  // channel is 0-indexed
+        guard channel != midiController.channel else { return }
+        midiController.channel = channel
+        NSLog("MIDI: channel changed to %d (0-based)", channel)
+        saveSettings()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func brightnessSnapChanged(_ sender: NSMenuItem) {
-        if let value = sender.representedObject as? Float {
-            brightnessSnapValue = value
-        }
-        refreshMenu()
-    }
-
-    @objc private func midiCCChanged(_ sender: NSMenuItem) {
-        midiController.ccNumber = UInt8(sender.tag)
-        NSLog("MIDI: CC number changed to %d", sender.tag)
-        refreshMenu()
-    }
-
-    @objc private func midiChannelChanged(_ sender: NSMenuItem) {
-        midiController.channel = UInt8(sender.tag - 1)  // menu shows 1-based, MIDI is 0-based
-        NSLog("MIDI: channel changed to %d", sender.tag)
-        refreshMenu()
-    }
-
-    @objc private func toggleDDC(_ sender: NSMenuItem) {
-        brightnessController.ddcController.isEnabled.toggle()
-        let enabled = brightnessController.ddcController.isEnabled
+    func setDDCEnabled(_ enabled: Bool) {
+        guard enabled != brightnessController.ddcController.isEnabled else { return }
+        brightnessController.ddcController.isEnabled = enabled
         NSLog("DDC/CI: %@", enabled ? "enabled" : "disabled")
-        brightnessController.reprobeDisplays(force: true)
+        if enabled {
+            brightnessController.reprobeDisplays(force: true)
+        }
         UserDefaults.standard.set(enabled, forKey: "powermate.ddc.enabled")
         refreshMenu()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func toggleBrightnessSync(_ sender: NSMenuItem) {
-        brightnessController.syncDisplays.toggle()
-        NSLog("Brightness: Sync %@", brightnessController.syncDisplays ? "ON" : "OFF")
+    func setSyncDisplays(_ enabled: Bool) {
+        guard enabled != brightnessController.syncDisplays else { return }
+        brightnessController.syncDisplays = enabled
+        NSLog("Brightness: Sync %@", enabled ? "ON" : "OFF")
         refreshMenu()
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func ledFollowLevel(_ sender: NSMenuItem) {
-        ledFollowsLevel.toggle()
-        if ledFollowsLevel { updateLEDForLevel() }
-        refreshMenu()
+    func setLaunchAtLogin(_ enabled: Bool) {
+        guard enabled != launchAtLogin else { return }
+        launchAtLogin = enabled
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+                NSLog("Launch at login: enabled")
+            } else {
+                try SMAppService.mainApp.unregister()
+                NSLog("Launch at login: disabled")
+            }
+        } catch {
+            NSLog("Launch at login failed: %@", error.localizedDescription)
+            launchAtLogin = !enabled  // revert on failure
+        }
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func ledOff() {
-        ledFollowsLevel = false
-        powerMate.setLEDBrightness(0)
-        refreshMenu()
+    func setLongPressThreshold(_ seconds: Double) {
+        powerMate.longPressThreshold = seconds
+        UserDefaults.standard.set(seconds, forKey: "powermate.longPressThreshold")
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func ledDim() {
-        ledFollowsLevel = false
-        powerMate.setLEDBrightness(64)
-        refreshMenu()
+    func setDoubleTapInterval(_ seconds: Double) {
+        powerMate.doubleTapInterval = seconds
+        UserDefaults.standard.set(seconds, forKey: "powermate.doubleTapInterval")
+        SettingsModel.shared.refresh()
     }
 
-    @objc private func ledBright() {
-        ledFollowsLevel = false
-        powerMate.setLEDBrightness(255)
-        refreshMenu()
-    }
-
-    @objc private func quitApp() {
-        NSApplication.shared.terminate(nil)
-    }
+    // Read accessors for the Settings window (powerMate is private)
+    var longPressThreshold: Double { powerMate.longPressThreshold }
+    var doubleTapInterval: Double { powerMate.doubleTapInterval }
+    var powerMateLEDBrightness: UInt8 { powerMate.ledBrightness }
 
     @objc private func checkForUpdates() {
         updaterController?.checkForUpdates(nil)
@@ -715,23 +560,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             return false
         }
         return true
-    }
-
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
-        launchAtLogin.toggle()
-        do {
-            if launchAtLogin {
-                try SMAppService.mainApp.register()
-                NSLog("Launch at login: enabled")
-            } else {
-                try SMAppService.mainApp.unregister()
-                NSLog("Launch at login: disabled")
-            }
-        } catch {
-            NSLog("Launch at login failed: %@", error.localizedDescription)
-            launchAtLogin.toggle() // revert on failure
-        }
-        refreshMenu()
     }
 
     @objc private func showAboutWindow() {
@@ -907,20 +735,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         return lines.joined(separator: "\n")
     }
 
-    @objc private func showCustomSettings() {
-        if customSettingsWindowController == nil {
-            let settingsView = CustomModeSettingsView()
-            let hostingController = NSHostingController(rootView: settingsView)
-            let window = NSWindow(contentViewController: hostingController)
-            window.title = "Custom Mode Settings"
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-            window.setContentSize(NSSize(width: 750, height: 500))
-            
-            let controller = NSWindowController(window: window)
-            customSettingsWindowController = controller
-        }
-        
-        customSettingsWindowController?.showWindow(nil)
+    @objc private func showSettings() {
+        // Always build a fresh view so every section reflects current state.
+        settingsWindowController?.close()
+        let settingsView = SettingsView()
+        let hostingController = NSHostingController(rootView: settingsView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Settings"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 700, height: 520))
+        window.minSize = NSSize(width: 560, height: 460)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        let controller = NSWindowController(window: window)
+        settingsWindowController = controller
+        controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -1114,12 +944,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         updateStatusDisplay()
         refreshMenu()
         updateLEDForLevel()
+        SettingsModel.shared.refresh()
     }
 
     func powerMateDidDisconnect() {
         NSLog("PowerMate disconnected")
         updateStatusDisplay()
         refreshMenu()
+        SettingsModel.shared.refresh()
     }
 
     func powerMateDidRotate(delta: Int) {
@@ -1220,6 +1052,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // External volume change (keyboard, Control Center, another app)
         updateLEDForLevel()
         updateMenuLevels()
+        SettingsModel.shared.refresh()
     }
 
     func audioDeviceDidChange(deviceName: String, method: VolumeControlMethod) {
@@ -1239,6 +1072,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         updateLEDForLevel()
         refreshMenu()
+        SettingsModel.shared.refresh()
     }
 
     // MARK: - Settings Persistence

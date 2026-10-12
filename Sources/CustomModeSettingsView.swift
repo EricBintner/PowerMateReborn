@@ -1,96 +1,9 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Main View
-
-struct CustomModeSettingsView: View {
-    @ObservedObject var engine = CustomModeEngine.shared
-    @State private var selectedProfileID: UUID?
-    @State private var showingAddApp: Bool = false
-
-    var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedProfileID) {
-                Section(header: Text("Profiles")) {
-                    ForEach(engine.profiles) { profile in
-                        HStack {
-                            Image(systemName: profile.iconName)
-                                .foregroundColor(profile.isGlobal ? .blue : .primary)
-                                .frame(width: 20)
-                            VStack(alignment: .leading) {
-                                Text(profile.name)
-                                    .fontWeight(profile.isGlobal ? .medium : .regular)
-                                if engine.activeProfileID == profile.id {
-                                    Text("Active")
-                                        .font(.caption2)
-                                        .foregroundColor(.green)
-                                }
-                            }
-                        }
-                        .tag(profile.id)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(profile.name)
-                        .accessibilityValue(engine.activeProfileID == profile.id ? "Active Profile" : "Inactive Profile")
-                        .accessibilityAddTraits(.isButton)
-                        .contextMenu {
-                            if !profile.isGlobal {
-                                Button("Remove") {
-                                    engine.removeProfile(id: profile.id)
-                                    if selectedProfileID == profile.id {
-                                        selectedProfileID = engine.profiles.first?.id
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 200, max: 250)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: { showingAddApp = true }) {
-                        Label("Add Application", systemImage: "plus")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAddApp) {
-                AddAppSheet(engine: engine, isPresented: $showingAddApp) { newID in
-                    selectedProfileID = newID
-                }
-            }
-        } detail: {
-            if let selectedProfileID,
-               let index = engine.profiles.firstIndex(where: { $0.id == selectedProfileID }) {
-                VStack(spacing: 0) {
-                    if !engine.inputPermissionGranted {
-                        // Custom Mode's scroll/keyboard actions post CGEvents,
-                        // which require Accessibility; without it they silently
-                        // do nothing on a fresh macOS install.
-                        Label(
-                            "Scroll and keyboard actions need Accessibility permission (System Settings > Privacy & Security > Accessibility).",
-                            systemImage: "exclamationmark.triangle"
-                        )
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.orange.opacity(0.1))
-                    }
-                    ProfileDetailView(engine: engine, profileIndex: index)
-                }
-            } else {
-                Text("Select an application profile to configure Custom Mode.")
-                    .foregroundColor(.secondary)
-            }
-        }
-        .frame(width: 750, height: 520)
-        .onAppear {
-            if selectedProfileID == nil {
-                selectedProfileID = engine.profiles.first?.id
-            }
-        }
-    }
-}
+// The Custom Mode editor now lives in the Settings window's Custom section
+// (SettingsView.swift > CustomProfilesSection). The views below — AddAppSheet,
+// ProfileDetailView, ActionConfigRow, IntField — are reused by it.
 
 // MARK: - Add App Sheet
 

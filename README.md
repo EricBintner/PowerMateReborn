@@ -38,14 +38,14 @@ Transform your Griffin PowerMate into a dedicated media control knob for your Ma
 ### Core Modes
 - **Volume Mode** -- Controls all macOS audio devices via CoreAudio with intelligent fallback (Master > Channel > VirtualMaster > AppleScript > Software).
 - **Brightness Mode** -- Adjusts built-in and external displays via DisplayServices, DDC/CI hardware, gamma tables, or overlay dimming. Syncs all monitors by default with relative offset preservation, or controls them individually based on mouse cursor position.
-- **MIDI Mode** -- Creates a virtual CoreMIDI source ("PowerMate Knob") visible to any DAW. Knob rotation sends CC messages; button press sends note on/off. Configurable CC number and channel from the menu bar.
+- **MIDI Mode** -- Creates a virtual CoreMIDI source ("PowerMate Knob") visible to any DAW. Knob rotation sends CC messages; button press sends note on/off. Configurable CC number and channel in Settings > MIDI.
 - **Custom Mode** -- Fully user-configurable per-application profiles. Assign any gesture to scroll, keyboard shortcuts, media keys, MIDI CC/Note, or OSC messages. See [Custom Mode](#custom-mode) below.
 
 ### System
 - **Native Swift Driver** -- Pure IOKit HID implementation. No kernel extensions, no Rosetta.
-- **Menu Bar App** -- Lightweight status item with mode indicator, output device picker, sensitivity control, and LED configuration.
+- **Menu Bar App** -- Lightweight status item with mode indicator, volume/brightness readouts, and a full Settings window (General, Audio, Knob, Displays, MIDI, Custom).
 - **Hardware LED Sync** -- LED ring brightness tracks the current level in real time.
-- **Multi-Display Brightness** -- All monitors dim together by default (with relative offsets preserved). Uncheck "Sync All Displays" to control each monitor independently based on mouse position.
+- **Multi-Display Brightness** -- All monitors dim together by default (with relative offsets preserved). Turn off "Sync All Displays" in Settings > Displays to control each monitor independently based on mouse position.
 - **DDC/CI Hardware Brightness** -- Native I2C commands to external monitors for real backlight control, with instant gamma feedback for smooth knob feel.
 - **Night Mode** -- Deep overlay dimming to near-black for any display type.
 - **Native OSD** -- macOS-style volume/brightness overlay with SF Symbols and segmented level bar.
@@ -54,7 +54,7 @@ Transform your Griffin PowerMate into a dedicated media control knob for your Ma
 
 ## Custom Mode
 
-Custom Mode lets you define what the PowerMate does on a per-application basis. Open **"Custom Mode Settings..."** from the menu bar to configure.
+Custom Mode lets you define what the PowerMate does on a per-application basis. Open **Settings...** from the menu bar and select the **Custom** section to configure.
 
 ### How It Works
 1. **Global Default** -- A base profile that applies when no app-specific profile matches.
