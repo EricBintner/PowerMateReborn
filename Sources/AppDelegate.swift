@@ -75,8 +75,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Keep this first: transports log connection events right after this.
         AppLogCapture.start()
 
-        // Only initialize Sparkle if running inside a proper .app bundle (prevents errors during `swift run`)
-        if Bundle.main.bundleURL.pathExtension == "app" {
+        // Only initialize Sparkle when running inside a proper .app bundle AND
+        // the update feed is fully configured. Starting the updater with a
+        // placeholder or missing SUPublicEDKey produces a blocking "Unable to
+        // Check For Updates" error sheet at launch (issue #1), so verify the
+        // EdDSA key looks real (non-placeholder base64, 43 chars + padding)
+        // before handing Sparkle control.
+        if Bundle.main.bundleURL.pathExtension == "app", isSparkleConfigured {
             updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
         }
         
@@ -688,6 +693,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     @objc private func checkForUpdates() {
         updaterController?.checkForUpdates(nil)
+    }
+
+    /// True when the Sparkle update feed is configured with a real (non-placeholder)
+    /// EdDSA public key and feed URL. Used to decide whether starting the updater is safe.
+    private var isSparkleConfigured: Bool {
+        guard let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+              let edKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else {
+            NSLog("Sparkle: update feed not configured — updater disabled")
+            return false
+        }
+        let trimmedFeed = feedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedFeed.isEmpty, trimmedFeed.hasPrefix("https://") else {
+            NSLog("Sparkle: SUFeedURL invalid — updater disabled")
+            return false
+        }
+        let trimmedKey = edKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Ed25519 public keys are 32 bytes -> 43 base64 chars + '=' padding.
+        // Reject empty/placeholder keys ("REPLACE_WITH_YOUR_EDDSA_PUBLIC_KEY" etc.).
+        guard trimmedKey.count == 44, trimmedKey.hasSuffix("="),
+              !trimmedKey.uppercased().contains("REPLACE_WITH") else {
+            NSLog("Sparkle: SUPublicEDKey missing or placeholder — updater disabled")
+            return false
+        }
+        return true
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
