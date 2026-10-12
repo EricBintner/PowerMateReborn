@@ -109,6 +109,13 @@ class VolumeController {
     private var volumeListenerInstalled = false
     private var muteListenerInstalled = false
 
+    /// The device the volume/mute listeners are currently installed on.
+    /// CoreAudio removal must target this device, NOT activeDeviceID —
+    /// refreshAllDevices() reassigns activeDeviceID before removing, so the
+    /// old code removed (or failed to remove, with a fresh block) from the
+    /// wrong device and listeners accumulated on every device switch.
+    private var listenersDeviceID: AudioDeviceID = kAudioObjectUnknown
+
     init() {
         refreshAllDevices()
         installDeviceChangeListener()
@@ -568,6 +575,22 @@ class VolumeController {
 
     // MARK: - Volume Change Listener (A3)
 
+    /// C callback trampoline shared by the volume/mute listeners. CoreAudio's
+    /// block-based removal matches by block identity, and callers had been
+    /// passing a fresh literal block to remove — which never matched, so
+    /// listeners accumulated on every device switch. The function-pointer API
+    /// matches by pointer, and both install and remove pass this same global.
+    private let externalVolumeChangeCallback: AudioObjectPropertyListenerProc = { _, _, _, clientData in
+        guard let clientData = clientData else { return noErr }
+        let self_ = Unmanaged<VolumeController>.fromOpaque(clientData).takeUnretainedValue()
+        // CoreAudio delivers listener callbacks on its own thread; the old
+        // block-based API hopped to main via the dispatch queue parameter.
+        DispatchQueue.main.async {
+            self_.onExternalVolumeChange()
+        }
+        return noErr
+    }
+
     private func installVolumeListeners() {
         guard activeDeviceID != AudioObjectID(kAudioObjectUnknown) else { return }
 
@@ -578,28 +601,37 @@ class VolumeController {
             mElement: 0
         )
         if AudioObjectHasProperty(activeDeviceID, &volAddr) {
-            AudioObjectAddPropertyListenerBlock(activeDeviceID, &volAddr, DispatchQueue.main) { [weak self] _, _ in
-                self?.onExternalVolumeChange()
+            let status = AudioObjectAddPropertyListener(activeDeviceID, &volAddr, externalVolumeChangeCallback, Unmanaged.passUnretained(self).toOpaque())
+            if status == noErr {
+                volumeListenerInstalled = true
+            } else {
+                NSLog("Audio: add volume listener failed (%d)", status)
             }
-            volumeListenerInstalled = true
         }
 
         // Listen for mute changes
         var muteAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyMute,
             mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: kAudioDevicePropertyElementMain
         )
         if AudioObjectHasProperty(activeDeviceID, &muteAddr) {
-            AudioObjectAddPropertyListenerBlock(activeDeviceID, &muteAddr, DispatchQueue.main) { [weak self] _, _ in
-                self?.onExternalVolumeChange()
+            let status = AudioObjectAddPropertyListener(activeDeviceID, &muteAddr, externalVolumeChangeCallback, Unmanaged.passUnretained(self).toOpaque())
+            if status == noErr {
+                muteListenerInstalled = true
+            } else {
+                NSLog("Audio: add mute listener failed (%d)", status)
             }
-            muteListenerInstalled = true
         }
+
+        listenersDeviceID = activeDeviceID
     }
 
     private func removeVolumeListeners() {
-        guard activeDeviceID != AudioObjectID(kAudioObjectUnknown) else { return }
+        // Remove from the device the listeners are actually installed on —
+        // NOT activeDeviceID, which refreshAllDevices() has usually already
+        // reassigned to the new device by the time this runs.
+        guard listenersDeviceID != AudioObjectID(kAudioObjectUnknown) else { return }
 
         if volumeListenerInstalled {
             var volAddr = AudioObjectPropertyAddress(
@@ -607,7 +639,7 @@ class VolumeController {
                 mScope: kAudioDevicePropertyScopeOutput,
                 mElement: 0
             )
-            AudioObjectRemovePropertyListenerBlock(activeDeviceID, &volAddr, DispatchQueue.main, { _, _ in })
+            AudioObjectRemovePropertyListener(listenersDeviceID, &volAddr, externalVolumeChangeCallback)
             volumeListenerInstalled = false
         }
 
@@ -615,11 +647,13 @@ class VolumeController {
             var muteAddr = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyMute,
                 mScope: kAudioDevicePropertyScopeOutput,
-                mElement: kAudioObjectPropertyElementMain
+                mElement: kAudioDevicePropertyElementMain
             )
-            AudioObjectRemovePropertyListenerBlock(activeDeviceID, &muteAddr, DispatchQueue.main, { _, _ in })
+            AudioObjectRemovePropertyListener(listenersDeviceID, &muteAddr, externalVolumeChangeCallback)
             muteListenerInstalled = false
         }
+
+        listenersDeviceID = AudioObjectID(kAudioObjectUnknown)
     }
 
     private func onExternalVolumeChange() {
