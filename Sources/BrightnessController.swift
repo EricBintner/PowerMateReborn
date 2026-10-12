@@ -357,15 +357,23 @@ class BrightnessController {
 
     // MARK: - Cleanup
 
-    /// Restore original gamma on quit
+    /// Restore original gamma on quit.
+    ///
+    /// On modern macOS (especially Tahoe) CGSetDisplayTransferByTable behaves
+    /// inconsistently, so instead of writing the captured table back directly,
+    /// ask macOS to restore the profile-defined tables via ColorSync. Overlays
+    /// are always removed regardless of method.
     func restoreGamma() {
-        for (id, state) in states {
+        var hadGammaState = false
+        for (_, state) in states {
             if (state.method == .gamma || state.method == .ddcHybrid) && state.gammaTableCaptured {
-                CGSetDisplayTransferByTable(id, 256,
-                                            state.originalGammaRed, state.originalGammaGreen, state.originalGammaBlue)
+                hadGammaState = true
             }
             state.overlayWindow?.orderOut(nil)
         }
+
+        guard hadGammaState else { return }
+        CGDisplayRestoreColorSyncSettings()
     }
 
     /// Update the target display to whichever screen the mouse cursor is on.
