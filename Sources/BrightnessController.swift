@@ -20,9 +20,12 @@ enum BrightnessMethod: String {
 }
 
 class BrightnessController {
-    // DisplayServices private API (works for Apple/built-in displays)
-    private typealias GetBrightnessFunc = @convention(c) (UInt32) -> Float
-    private typealias SetBrightnessFunc = @convention(c) (UInt32, Float) -> Void
+    // DisplayServices private API (works for Apple/built-in displays).
+    // Real C signatures (see MonitorControl/Lunar): the getter writes the
+    // brightness through an out-parameter and returns success; the old
+    // (UInt32) -> Float reading caused EXC_BAD_ACCESS on built-in displays.
+    private typealias GetBrightnessFunc = @convention(c) (UInt32, UnsafeMutablePointer<Float>) -> Bool
+    private typealias SetBrightnessFunc = @convention(c) (UInt32, Float) -> Bool
 
     private var dsGetBrightness: GetBrightnessFunc?
     private var dsSetBrightness: SetBrightnessFunc?
@@ -89,6 +92,22 @@ class BrightnessController {
         }
     }
 
+    /// Read brightness via DisplayServices; nil if the API is missing or fails.
+    private func dsGet(displayID: CGDirectDisplayID) -> Float? {
+        guard let getter = dsGetBrightness else { return nil }
+        var value: Float = -1
+        let ok = getter(displayID, &value)
+        guard ok, value >= 0.0, value <= 1.0 else { return nil }
+        return value
+    }
+
+    /// Write brightness via DisplayServices; false if the API is missing or fails.
+    @discardableResult
+    private func dsSet(displayID: CGDirectDisplayID, _ value: Float) -> Bool {
+        guard let setter = dsSetBrightness else { return false }
+        return setter(displayID, value)
+    }
+
     private func probeDisplays() {
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
@@ -123,16 +142,15 @@ class BrightnessController {
         let state = DisplayState()
 
         // Tier 1: DisplayServices (Apple/built-in displays)
-        if let getter = dsGetBrightness, let setter = dsSetBrightness {
-            let current = getter(displayID)
-            if current >= 0.0 && current <= 1.0 {
+        if dsGetBrightness != nil, dsSetBrightness != nil {
+            if let current = dsGet(displayID: displayID) {
                 let testVal: Float = (current < 0.5) ? current + 0.02 : current - 0.02
-                setter(displayID, testVal)
+                dsSet(displayID: displayID, testVal)
                 usleep(50_000)
-                let readback = getter(displayID)
-                setter(displayID, current)
+                let readback = dsGet(displayID: displayID)
+                dsSet(displayID: displayID, current)
 
-                if abs(readback - testVal) < 0.02 {
+                if let readback = readback, abs(readback - testVal) < 0.02 {
                     state.method = .displayServices
                     NSLog("Brightness: display %d using DisplayServices", displayID)
                     return state
@@ -187,7 +205,7 @@ class BrightnessController {
         
         switch state.method {
         case .displayServices:
-            return dsGetBrightness?(displayID) ?? 0.5
+            return dsGet(displayID: displayID) ?? 0.5
         case .ddcHardware, .ddcHybrid:
             if let ddc = ddcController.getBrightness(displayID: displayID) {
                 return Float(ddc) / 100.0
@@ -221,12 +239,23 @@ class BrightnessController {
 
         switch state.method {
         case .displayServices:
-            dsSetBrightness?(displayID, clamped)
-            // Reliability sanity check: if the API silently fails, downgrade to Gamma
-            if let getter = dsGetBrightness {
+            let applied = dsSet(displayID: displayID, clamped)
+            if !applied {
+                // API rejected the write outright — downgrade right away
+                NSLog("Brightness: DisplayServices set failed for %d. Downgrading to Gamma.", displayID)
+                captureOriginalGamma(for: displayID, into: state)
+                if state.gammaTableCaptured {
+                    state.method = .gamma
+                    applyGamma(clamped, for: displayID, state: state)
+                } else {
+                    state.method = .overlay
+                    applyOverlay(clamped, for: displayID, state: state)
+                }
+            } else {
+                // Reliability sanity check: if the API silently fails, downgrade to Gamma
                 usleep(10_000) // 10ms wait for it to apply
-                let readback = getter(displayID)
-                if abs(readback - clamped) > 0.1 && abs(readback - state.gammaLevel) > 0.1 {
+                if let readback = dsGet(displayID: displayID),
+                   abs(readback - clamped) > 0.1 && abs(readback - state.gammaLevel) > 0.1 {
                     NSLog("Brightness: DisplayServices silently failed for %d. Downgrading to Gamma.", displayID)
                     captureOriginalGamma(for: displayID, into: state)
                     if state.gammaTableCaptured {
