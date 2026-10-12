@@ -167,7 +167,26 @@ struct ProfileDetailView: View {
         )
     }
 
+    /// After a profile removal the parent re-renders with a fresh index, but
+    /// this view's stored bindings can fire once with the stale index before
+    /// that happens — bounds-check in body rather than crashing.
+    private var isIndexValid: Bool {
+        profileIndex < engine.profiles.count
+    }
+
     var body: some View {
+        Group {
+            if !isIndexValid {
+                // Stale index after a removal — parent will re-render with a
+                // valid one; render nothing in the interim.
+                EmptyView()
+            } else {
+                profileDetailBody
+            }
+        }
+    }
+
+    private var profileDetailBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Header
@@ -281,6 +300,11 @@ struct ActionConfigRow: View {
 
     @State private var isRecordingShortcut = false
     @State private var shortcutDisplayString = ""
+    /// Token of the active keyboard-shortcut recording monitor. Removed when
+    /// recording ends — previously every "Record Shortcut" click added a new
+    /// permanent monitor, and stale monitors kept rewriting the shortcut long
+    /// after the sheet closed.
+    @State private var shortcutMonitor: Any?
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -326,6 +350,11 @@ struct ActionConfigRow: View {
                                 startShortcutRecording()
                             }
                             .buttonStyle(.bordered)
+                            .onDisappear {
+                                // Sheet closed / row switched while still
+                                // recording — remove the abandoned monitor
+                                stopShortcutRecording()
+                            }
                             .accessibilityHint("Click to start recording a new keyboard shortcut")
                         }
 
@@ -394,15 +423,28 @@ struct ActionConfigRow: View {
     }
 
     private func startShortcutRecording() {
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        // Remove any monitor left by a previous recording session first
+        if let monitor = shortcutMonitor {
+            NSEvent.removeMonitor(monitor)
+            shortcutMonitor = nil
+        }
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             config.keyboardShortcut = KeyboardShortcut(
                 keyCode: event.keyCode,
                 modifiers: UInt64(event.modifierFlags.rawValue),
                 displayString: shortcutString(event)
             )
-            isRecordingShortcut = false
+            stopShortcutRecording()
             return nil // consume the event
         }
+    }
+
+    private func stopShortcutRecording() {
+        if let monitor = shortcutMonitor {
+            NSEvent.removeMonitor(monitor)
+            shortcutMonitor = nil
+        }
+        isRecordingShortcut = false
     }
 
     private func shortcutString(_ event: NSEvent) -> String {
