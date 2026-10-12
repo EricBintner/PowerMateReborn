@@ -43,6 +43,16 @@ class BrightnessController {
         var gammaTableCaptured = false
         var overlayWindow: NSWindow?
         var overlayLevel: Float = 1.0
+        /// Hardware backlight level the display is stuck at when
+        /// DisplayServices stops working mid-session (0-1). Gamma then
+        /// compensates by level/factor so the net brightness still tracks
+        /// the knob — without this, "100%" tops out at the frozen hardware
+        /// level (the "OSD says 100% but looks 60%" bug).
+        var hardwareDimFactor: Float = 1.0
+        /// Set when a gamma write failed or verification detected drift;
+        /// cleared on successful re-apply. Drives the wake/reconfig
+        /// re-verification so a stuck state self-heals.
+        var needsGammaReapply: Bool = false
     }
     
     private var states: [CGDirectDisplayID: DisplayState] = [:]
@@ -158,6 +168,14 @@ class BrightnessController {
     private func detectMethod(for displayID: CGDirectDisplayID, into state: DisplayState) -> DisplayState {
         // Tier 1: DisplayServices (Apple/built-in displays)
         if dsGetBrightness != nil, dsSetBrightness != nil {
+            // Adopting DisplayServices over a state that was previously
+            // gamma-dimmed: the gamma table is still dimmed underneath, and
+            // DisplayServices only moves hardware — restore the profile
+            // table first so brightness isn't double-dimmed.
+            if (state.method == .gamma || state.method == .ddcHybrid) && state.gammaLevel < 1.0 {
+                CGDisplayRestoreColorSyncSettings()
+                state.gammaLevel = 1.0
+            }
             if let current = dsGet(displayID: displayID) {
                 let testVal: Float = (current < 0.5) ? current + 0.02 : current - 0.02
                 dsSet(displayID: displayID, testVal)
@@ -206,11 +224,38 @@ class BrightnessController {
 
     private func captureOriginalGamma(for displayID: CGDirectDisplayID, into state: DisplayState) {
         var sampleCount: UInt32 = 0
-        let result = CGGetDisplayTransferByTable(
-            displayID, 256,
-            &state.originalGammaRed, &state.originalGammaGreen, &state.originalGammaBlue,
-            &sampleCount)
+        var r = [CGGammaValue](repeating: 0, count: 256)
+        var g = [CGGammaValue](repeating: 0, count: 256)
+        var b = [CGGammaValue](repeating: 0, count: 256)
+        let result = CGGetDisplayTransferByTable(displayID, 256, &r, &g, &b, &sampleCount)
         state.gammaTableCaptured = (result == .success && sampleCount > 0)
+        guard state.gammaTableCaptured else { return }
+
+        // Sanity-check the ramp before adopting it as "original": if the
+        // table maxes out below full scale, we're capturing a DIMMED table
+        // (our own leftover dim from before a display-ID change, or a
+        // previous crash). Adopting it would make "100%" mean the dimmed
+        // level forever. Ask ColorSync for the profile-defined table first.
+        let maxR = r.max() ?? 0
+        if maxR < 0.95 || (g.max() ?? 0) < 0.95 || (b.max() ?? 0) < 0.95 {
+            NSLog("Brightness: suspect gamma baseline for display %d (maxR=%.2f) — restoring ColorSync before capture", displayID, maxR)
+            CGDisplayRestoreColorSyncSettings()
+            usleep(200_000)  // give the restore a moment to apply
+            let retry = CGGetDisplayTransferByTable(displayID, 256, &r, &g, &b, &sampleCount)
+            state.gammaTableCaptured = (retry == .success && sampleCount > 0)
+            if !state.gammaTableCaptured { return }
+            // Still dim after restore? The monitor may run a reduced-gamut
+            // profile legitimately; accept whatever we read now (it's the
+            // best baseline available) rather than refusing to control.
+            let newMax = r.max() ?? 0
+            if newMax < 0.95 {
+                NSLog("Brightness: baseline still reduced after ColorSync restore (maxR=%.2f) — accepting as-is", newMax)
+            }
+        }
+
+        state.originalGammaRed = r
+        state.originalGammaGreen = g
+        state.originalGammaBlue = b
     }
 
     // MARK: - Public API
@@ -231,7 +276,11 @@ class BrightnessController {
             }
             return state.gammaLevel
         case .gamma:
-            return state.gammaLevel
+            // Net brightness = gamma level × frozen hardware factor (when a
+            // DisplayServices display got downgraded mid-session, the
+            // hardware backlight is stuck — report the truth so the OSD
+            // matches what the user sees).
+            return min(1.0, state.gammaLevel * state.hardwareDimFactor)
         case .overlay:
             return state.overlayLevel
         case .none:
@@ -260,8 +309,13 @@ class BrightnessController {
         case .displayServices:
             let applied = dsSet(displayID: displayID, clamped)
             if !applied {
-                // API rejected the write outright — downgrade right away
+                // API rejected the write outright — downgrade right away.
+                // The hardware may already be stuck at its last DS level; if
+                // we know it, gamma compensates so net brightness tracks
+                // the knob instead of topping out at the frozen level.
                 NSLog("Brightness: DisplayServices set failed for %d. Downgrading to Gamma.", displayID)
+                state.hardwareDimFactor = dsGet(displayID: displayID) ?? 1.0
+                if state.hardwareDimFactor <= 0.05 { state.hardwareDimFactor = 1.0 }  // avoid div-by-0 nonsense
                 captureOriginalGamma(for: displayID, into: state)
                 if state.gammaTableCaptured {
                     state.method = .gamma
@@ -271,11 +325,25 @@ class BrightnessController {
                     applyOverlay(clamped, for: displayID, state: state)
                 }
             } else {
-                // Reliability sanity check: if the API silently fails, downgrade to Gamma
-                usleep(10_000) // 10ms wait for it to apply
-                if let readback = dsGet(displayID: displayID),
-                   abs(readback - clamped) > 0.1 && abs(readback - state.gammaLevel) > 0.1 {
-                    NSLog("Brightness: DisplayServices silently failed for %d. Downgrading to Gamma.", displayID)
+                // Reliability sanity check: a SINGLE readback mismatch can
+                // be readback lag while the hardware write actually landed
+                // — downgrading on it stacks gamma dim on top of hardware
+                // dim (double-dim). Confirm the mismatch holds over a few
+                // samples before downgrading.
+                var mismatchCount = 0
+                for _ in 0..<3 {
+                    usleep(60_000)  // 60ms per sample
+                    if let readback = dsGet(displayID: displayID),
+                       abs(readback - clamped) > 0.1 && abs(readback - state.gammaLevel) > 0.1 {
+                        mismatchCount += 1
+                    } else {
+                        break  // hardware caught up — not a real failure
+                    }
+                }
+                if mismatchCount >= 3 {
+                    NSLog("Brightness: DisplayServices silently failed for %d (%d/3 mismatches). Downgrading to Gamma.", displayID, mismatchCount)
+                    state.hardwareDimFactor = dsGet(displayID: displayID) ?? 1.0
+                    if state.hardwareDimFactor <= 0.05 { state.hardwareDimFactor = 1.0 }
                     captureOriginalGamma(for: displayID, into: state)
                     if state.gammaTableCaptured {
                         state.method = .gamma
@@ -285,7 +353,7 @@ class BrightnessController {
                         applyOverlay(clamped, for: displayID, state: state)
                     }
                 } else {
-                    state.gammaLevel = clamped // Keep sync for hybrid logic if needed
+                    state.gammaLevel = clamped // hardware caught up — accept
                 }
             }
 
@@ -495,10 +563,20 @@ class BrightnessController {
     private func onDisplayReconfigured() {
         probeDisplays()
 
-        // Re-apply gamma to all
+        // Re-apply gamma to ALL gamma-method displays, including "100%" —
+        // the old `gammaLevel < 1.0` guard meant a display stuck at 1.0
+        // (silently refused write, or a table reset by the system) was
+        // never rewritten or verified, and nothing self-healed it.
         for (id, state) in states {
-            if (state.method == .gamma || state.method == .ddcHybrid) && state.gammaLevel < 1.0 {
+            if state.method == .gamma || state.method == .ddcHybrid {
                 applyGamma(state.gammaLevel, for: id, state: state)
+                if !verifyGammaTable(state.gammaLevel, for: id, state: state) {
+                    NSLog("Brightness: gamma table drifted for display %d — reapplying", id)
+                    applyGamma(state.gammaLevel, for: id, state: state)
+                    state.needsGammaReapply = !verifyGammaTable(state.gammaLevel, for: id, state: state)
+                } else {
+                    state.needsGammaReapply = false
+                }
             }
         }
     }
@@ -541,9 +619,10 @@ class BrightnessController {
         return CGMainDisplayID()
     }
 
-    private func applyGamma(_ level: Float, for displayID: CGDirectDisplayID, state: DisplayState) {
-        guard state.gammaTableCaptured else { return }
-        let factor = max(0.01, level)
+    @discardableResult
+    private func applyGamma(_ level: Float, for displayID: CGDirectDisplayID, state: DisplayState) -> Bool {
+        guard state.gammaTableCaptured else { return false }
+        let factor = max(0.01, level) * state.hardwareDimFactor
 
         var scaledRed   = [CGGammaValue](repeating: 0, count: 256)
         var scaledGreen = [CGGammaValue](repeating: 0, count: 256)
@@ -555,8 +634,44 @@ class BrightnessController {
             scaledBlue[i]  = state.originalGammaBlue[i]  * factor
         }
 
-        CGSetDisplayTransferByTable(displayID, 256,
-                                    scaledRed, scaledGreen, scaledBlue)
+        var lastError = CGError.success
+        for _ in 0..<3 {
+            lastError = CGSetDisplayTransferByTable(displayID, 256,
+                                                    scaledRed, scaledGreen, scaledBlue)
+            if lastError == .success { break }
+            usleep(50_000)  // 50ms between retries
+        }
+        if lastError != .success {
+            NSLog("Brightness: gamma write FAILED for display %d (err=%d) — will re-verify on next reconfig/wake", displayID, lastError.rawValue)
+            state.needsGammaReapply = true
+            return false
+        }
+        return true
+    }
+
+    /// Verify the live gamma table matches the scaled baseline for `level`
+    /// (within tolerance). Detects a silently refused write or a table reset
+    /// by the system — the "OSD says 100% but display looks 60%" state.
+    private func verifyGammaTable(_ level: Float, for displayID: CGDirectDisplayID, state: DisplayState) -> Bool {
+        guard state.gammaTableCaptured else { return false }
+        var sampleCount: UInt32 = 0
+        var r = [CGGammaValue](repeating: 0, count: 256)
+        var g = [CGGammaValue](repeating: 0, count: 256)
+        var b = [CGGammaValue](repeating: 0, count: 256)
+        guard CGGetDisplayTransferByTable(displayID, 256, &r, &g, &b, &sampleCount) == .success,
+              sampleCount > 0 else { return false }
+
+        let factor = max(0.01, level) * state.hardwareDimFactor
+        for i in 0..<Int(sampleCount) {
+            let expectedR = state.originalGammaRed[i] * factor
+            let expectedG = state.originalGammaGreen[i] * factor
+            let expectedB = state.originalGammaBlue[i] * factor
+            let tol: CGGammaValue = 0.02
+            if abs(r[i] - expectedR) > tol || abs(g[i] - expectedG) > tol || abs(b[i] - expectedB) > tol {
+                return false
+            }
+        }
+        return true
     }
 
     // MARK: - Overlay Implementation

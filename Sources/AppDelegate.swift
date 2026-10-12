@@ -1159,7 +1159,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
 
         case .brightness:
-            // Tap = snap to night mode (15%), tap again = restore
+            // Tap = snap to the configured brightness level, tap again = restore
             if let saved = brightnessBeforeSnap {
                 brightnessController.setBrightness(saved)
                 brightnessBeforeSnap = nil
