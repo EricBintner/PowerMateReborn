@@ -15,6 +15,7 @@ class PowerMateUSBTransport: PowerMateTransport {
     private var manager: IOHIDManager?
     private var device: IOHIDDevice?
     private var lastButtonState: Bool = false
+    private var inputReportBuffer: UnsafeMutablePointer<UInt8>?
 
     // LED state
     private(set) var ledBrightness: UInt8 = 0
@@ -74,28 +75,34 @@ class PowerMateUSBTransport: PowerMateTransport {
 
     // MARK: - LED Implementation
 
-    /// Send a 1-byte HID output report — the only write path that works on macOS Sequoia
+    /// Send a 1-byte HID output report — the only write path that works on macOS Sequoia.
+    /// Must be called on the main thread: the device handle is set/cleared on
+    /// the main run loop (IOHIDManager callbacks), and all callers (menu actions,
+    /// knob events, LED test below) run on main.
     @discardableResult
     func sendOutputReport(_ value: UInt8) -> Bool {
+        assert(Thread.isMainThread, "sendOutputReport called off the main thread")
         guard let hidDevice = device else { return false }
         var report: [UInt8] = [value]
         let result = IOHIDDeviceSetReport(hidDevice, kIOHIDReportTypeOutput, 0, &report, report.count)
         return result == kIOReturnSuccess
     }
 
-    /// Visual startup test: flash LED off->on to confirm communication
+    /// Visual startup test: flash LED off->on to confirm communication.
+    /// Scheduled on main (no sleeping background thread racing the device
+    /// handle on hot-unplug); each step no-ops if the device went away.
     private func runStartupLEDTest() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        NSLog("LED: startup test — flash off->on")
+        sendOutputReport(0)      // LED off
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.sendOutputReport(255)    // full bright
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.sendOutputReport(0)      // off
+        }
+        // Restore actual brightness state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self = self else { return }
-            NSLog("LED: startup test — flash off->on")
-            self.sendOutputReport(0)       // LED off
-            usleep(300_000)                // 300ms
-            self.sendOutputReport(255)     // LED full bright
-            usleep(300_000)                // 300ms
-            self.sendOutputReport(0)       // LED off
-            usleep(200_000)                // 200ms
-            
-            // Restore actual brightness state
             self.sendOutputReport(self.ledBrightness)
         }
     }
@@ -112,11 +119,13 @@ class PowerMateUSBTransport: PowerMateTransport {
         }
 
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        let reportSize = 6
-        let reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportSize)
-        IOHIDDeviceRegisterInputReportCallback(hidDevice, reportBuffer, reportSize, inputCallback, selfPtr)
+        // Free the previous match's buffer and unregister its callback, so
+        // hot-plug cycles don't leak a buffer per reconnection.
+        inputReportBuffer?.deallocate()
+        inputReportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 6)
+        IOHIDDeviceRegisterInputReportCallback(hidDevice, inputReportBuffer!, 6, inputCallback, selfPtr)
 
-        // Run startup LED flash test (blocks briefly, runs on callback thread)
+        // Run startup LED flash test (scheduled on main, non-blocking)
         runStartupLEDTest()
 
         NSLog("PowerMate device matched")
@@ -127,9 +136,15 @@ class PowerMateUSBTransport: PowerMateTransport {
     }
 
     private func onDeviceRemoved(_ hidDevice: IOHIDDevice) {
+        // Unregister our input callback using the registered buffer (the
+        // callback system keeps the pointer; re-registering replaces the
+        // callback with a no-op so late reports can't touch our state).
+        if let buffer = inputReportBuffer {
+            IOHIDDeviceRegisterInputReportCallback(hidDevice, buffer, 6, { _, _, _, _, _, _, _ in }, nil)
+        }
         device = nil
         lastButtonState = false
-        
+
         DispatchQueue.main.async {
             self.transportDelegate?.transportDidDisconnect(self)
         }
