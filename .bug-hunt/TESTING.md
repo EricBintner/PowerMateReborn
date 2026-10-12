@@ -97,6 +97,15 @@
 30. **Duplicate DDC probe on wake** — onSystemWake probed both directly and via onDisplayReconfigured. Fixed.
 31. **RESOLVED: serial-key collision** — displaySerialKey is vendor-model-serial, and CGDisplaySerialNumber returns 0 for many external monitors → identical monitors collide in displayPreferences. **Fix (peer-decided):** append a per-port registry-location tiebreaker (IOAVService registry leaf, cached at probe time) — but ONLY when serial == 0. An EDID-derived UUID was considered and rejected: it's computed from the same EDID bytes (vendor/product/serial), so it collides identically in exactly the failing cases; per-port location is the only real disambiguator. Note the legacy deprecated CGDisplayIOServicePort is unavailable in modern SDKs, so the location comes from the IOAVService walk the DDC controller already performs. Caveat (peer): port location can swap across reboots on some GPUs — the saved level is a hint, not a contract; a miss falls back to the default level (same as pre-fix behavior). Displays without an IOAVService (HDMI, DisplayLink) keep the bare key and today's behavior.
 
+### User-reported stuck-brightness bug (2026-10-12, fixed in c137f47)
+
+32. **"OSD says 100% but display looks ~60%" after down-then-up** (user report, never in the issue thread). Root-caused via opus-tier trace + empirical tests to three stacked mechanisms:
+   - **A. Fire-and-forget gamma writes** — `CGSetDisplayTransferByTable`'s result was ignored; nothing verified the live table; the reconfig/wake re-apply ran only when `gammaLevel < 1.0`, so a silently refused write or system table reset at a believed-100% state never self-healed. Fixed: 3x retry, unconditional re-apply+readback verification on reconfig/wake (including 1.0), drift flag.
+   - **B. Baseline poisoning on display-ID change** — a display reappearing with a new CGDirectDisplayID (common on HDMI post-sleep) got a fresh state whose "original" capture adopted our own dimmed leftover table → "100%" meant the dimmed baseline forever. Fixed: ramp sanity check + ColorSync restore before adopting a suspect baseline.
+   - **C. MacBook DisplayServices downgrade double-dim** — single 10ms readback check downgraded on mere readback lag, stacking gamma over a backlight that took the write; frozen backlight then capped "100%". Fixed: 3-confirmed-mismatch requirement (~180ms), `hardwareDimFactor` compensation, true net brightness in getCurrentBrightness/OSD, ColorSync restore when re-adopting DisplayServices over gamma-dimmed state.
+   - **Empirical**: in-process writes are 100% reliable (20/20 exact); corruption written cross-process reverts on process exit — macOS actively manages the table, proving blind writes were never safe. Test scripts: `gamma-reliability-test.swift`, `corrupt-persistence-test.swift`, `drift-detect-test.sh`, `noapp-reconfig-test.sh`.
+   - Ruled out: 0.67 snap level (OSD would show 67%), night-mode overlay (no caller; dead code), ddcHybrid double-dim (unreachable without IOAVService), sync-delta math.
+
 ## Recommendations (priority order)
 
 1. Fix DisplayServices signature (one-file fix, unblocks all MacBook users).
