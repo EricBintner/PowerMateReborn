@@ -89,6 +89,14 @@
 
 **Any Mac with a Bluetooth PowerMate**: scan loop never times out; radio stays busy; sleep issues plus the connect dead-end bug.
 
+### Peer-audit additions (2026-10-12, from the capability-sniffing session) — fixed in fac7e1b
+
+27. **Sticky capability cache** — probeDisplays() never re-ran detectMethod for attached displays; a display whose method degraded while attached (DDC dies after sleep, user disables DDC) silently no-oped forever. Fixed: DDC health re-check on every probe + `probeDisplays(forceRedetect:)` preserving gamma baselines.
+28. **DDC settings order** — states probed at init with DDC defaulted on; `loadSettings` later disabled DDC without re-probing → DDC-cached displays writing into a disabled controller. Fixed: saved-setting change forces re-probe; toggle always re-probes.
+29. **Per-display prefs never restored** — `as? [String: Float]` on a UserDefaults dictionary always fails (values are NSNumber). Fixed: NSNumber.floatValue conversion; verified live (seeded 0.42 → "restoring saved level 42%").
+30. **Duplicate DDC probe on wake** — onSystemWake probed both directly and via onDisplayReconfigured. Fixed.
+31. **OPEN: serial-key collision** — displaySerialKey is vendor-model-serial, and CGDisplaySerialNumber returns 0 for many external monitors → identical monitors collide in displayPreferences (both load/save the same entry, last-writer-wins). Needs a keying decision (locationID or EDID UUID); not yet fixed.
+
 ## Recommendations (priority order)
 
 1. Fix DisplayServices signature (one-file fix, unblocks all MacBook users).
