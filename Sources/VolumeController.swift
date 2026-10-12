@@ -613,7 +613,7 @@ class VolumeController {
         var muteAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyMute,
             mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioDevicePropertyElementMain
+            mElement: kAudioObjectPropertyElementMain
         )
         if AudioObjectHasProperty(activeDeviceID, &muteAddr) {
             let status = AudioObjectAddPropertyListener(activeDeviceID, &muteAddr, externalVolumeChangeCallback, Unmanaged.passUnretained(self).toOpaque())
@@ -639,7 +639,7 @@ class VolumeController {
                 mScope: kAudioDevicePropertyScopeOutput,
                 mElement: 0
             )
-            AudioObjectRemovePropertyListener(listenersDeviceID, &volAddr, externalVolumeChangeCallback)
+            AudioObjectRemovePropertyListener(listenersDeviceID, &volAddr, externalVolumeChangeCallback, Unmanaged.passUnretained(self).toOpaque())
             volumeListenerInstalled = false
         }
 
@@ -647,9 +647,9 @@ class VolumeController {
             var muteAddr = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyMute,
                 mScope: kAudioDevicePropertyScopeOutput,
-                mElement: kAudioDevicePropertyElementMain
+                mElement: kAudioObjectPropertyElementMain
             )
-            AudioObjectRemovePropertyListener(listenersDeviceID, &muteAddr, externalVolumeChangeCallback)
+            AudioObjectRemovePropertyListener(listenersDeviceID, &muteAddr, externalVolumeChangeCallback, Unmanaged.passUnretained(self).toOpaque())
             muteListenerInstalled = false
         }
 
