@@ -116,7 +116,14 @@ class CustomModeEngine: ObservableObject {
     private var currentBundleID: String?
 
     let oscController = OSCController()
-    let midiController = MIDIController()
+
+    /// The shared MIDIController from AppDelegate. Custom Mode used to create
+    /// its own, which produced a duplicate "PowerMate Knob" virtual source in
+    /// MIDI applications; all MIDI now flows through the one shared source.
+    /// (nil only in the impossible-before-launch window; MIDI actions no-op.)
+    var midiController: MIDIController? {
+        return AppDelegate.shared?.midiController
+    }
 
     // Extended press state
     private(set) var extendedPressActive: Bool = false
@@ -397,45 +404,49 @@ class CustomModeEngine: ObservableObject {
         let newVal = max(0, min(127, current + delta * 127.0))
         ccAccumulators[cc] = newVal
 
-        let saved = (midiController.ccNumber, midiController.channel)
-        midiController.ccNumber = cc
-        midiController.channel = config.channel
-        midiController.setCC(UInt8(newVal))
-        midiController.ccNumber = saved.0
-        midiController.channel = saved.1
+        guard let midi = midiController else { return }
+        let saved = (midi.ccNumber, midi.channel)
+        midi.ccNumber = cc
+        midi.channel = config.channel
+        midi.setCC(UInt8(newVal))
+        midi.ccNumber = saved.0
+        midi.channel = saved.1
     }
 
     private func executeMIDINoteToggle(_ config: MIDINoteConfig) {
-        let saved = (midiController.noteNumber, midiController.noteVelocity, midiController.channel)
-        midiController.noteNumber = config.noteNumber
-        midiController.noteVelocity = config.velocity
-        midiController.channel = config.channel
-        midiController.toggleNote()
-        midiController.noteNumber = saved.0
-        midiController.noteVelocity = saved.1
-        midiController.channel = saved.2
+        guard let midi = midiController else { return }
+        let saved = (midi.noteNumber, midi.noteVelocity, midi.channel)
+        midi.noteNumber = config.noteNumber
+        midi.noteVelocity = config.velocity
+        midi.channel = config.channel
+        midi.toggleNote()
+        midi.noteNumber = saved.0
+        midi.noteVelocity = saved.1
+        midi.channel = saved.2
     }
 
     private func executeMIDINoteOn(_ config: MIDINoteConfig) {
-        let saved = (midiController.noteNumber, midiController.noteVelocity, midiController.channel)
-        midiController.noteNumber = config.noteNumber
-        midiController.noteVelocity = config.velocity
-        midiController.channel = config.channel
-        midiController.sendNoteOn()
-        midiController.noteNumber = saved.0
-        midiController.noteVelocity = saved.1
-        midiController.channel = saved.2
+        guard let midi = midiController else { return }
+        let saved = (midi.noteNumber, midi.noteVelocity, midi.channel)
+        midi.noteNumber = config.noteNumber
+        midi.noteVelocity = config.velocity
+        midi.channel = config.channel
+        midi.sendNoteOn()
+        midi.noteNumber = saved.0
+        midi.noteVelocity = saved.1
+        midi.channel = saved.2
     }
 
     private func executeMIDINoteOff(_ config: MIDINoteConfig) {
-        let saved = (midiController.noteNumber, midiController.noteVelocity, midiController.channel)
-        midiController.noteNumber = config.noteNumber
-        midiController.noteVelocity = config.velocity
-        midiController.channel = config.channel
-        midiController.sendNoteOff()
-        midiController.noteNumber = saved.0
-        midiController.noteVelocity = saved.1
-        midiController.channel = saved.2
+        guard let midi = midiController else { return }
+        let saved = (midi.noteNumber, midi.noteVelocity, midi.channel)
+        midi.noteNumber = config.noteNumber
+        midi.noteVelocity = config.velocity
+        midi.channel = config.channel
+        midi.sendNoteOff()
+        midi.noteNumber = saved.0
+        midi.noteVelocity = saved.1
+        midi.channel = saved.2
     }
 
     // MARK: - Extended Press (Sustain)

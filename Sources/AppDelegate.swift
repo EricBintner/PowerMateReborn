@@ -39,7 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     private var powerMate = PowerMateManager()
     private var volumeController = VolumeController()
     private(set) var brightnessController = BrightnessController()
-    private var midiController = MIDIController()
+    private(set) var midiController = MIDIController()
     private let customEngine = CustomModeEngine.shared
     private var updaterController: SPUStandardUpdaterController!
     private let osd = OSDOverlay()
