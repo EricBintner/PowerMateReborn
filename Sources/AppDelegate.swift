@@ -63,6 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     // UI Window Controllers
     private var customSettingsWindowController: NSWindowController?
+    private var issueReportWindowController: NSWindowController?
 
     override init() {
         super.init()
@@ -70,6 +71,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Capture stderr (all NSLog output) to a file so issue reports can include logs.
+        // Keep this first: transports log connection events right after this.
+        AppLogCapture.start()
+
         // Only initialize Sparkle if running inside a proper .app bundle (prevents errors during `swift run`)
         if Bundle.main.bundleURL.pathExtension == "app" {
             updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
@@ -460,6 +465,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         menu.addItem(aboutItem)
 
+        // Report Issue (above Check for Updates, matching the About dialog entry point)
+        let reportItem = NSMenuItem(title: "Report Issue...", action: #selector(showIssueReporter), keyEquivalent: "")
+        reportItem.target = self
+        // Use an empty image to perfectly align the text with other menu items
+        if let templateImg = NSImage(systemSymbolName: "exclamationmark.bubble.fill", accessibilityDescription: nil) {
+            reportItem.image = NSImage(size: templateImg.size)
+        }
+        menu.addItem(reportItem)
+
         // Add update check menu item
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
@@ -784,8 +798,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             spacer.heightAnchor.constraint(equalToConstant: 4)
         ])
         
-        // Report Issue button
-        let issueButton = NSButton(title: "Report Issue on GitHub", target: self, action: #selector(openGitHubIssues))
+        // Report Issue button (opens the prefilled report window)
+        let issueButton = NSButton(title: "Report Issue...", target: self, action: #selector(showIssueReporter))
         issueButton.bezelStyle = .rounded
         container.addArrangedSubview(issueButton)
         
@@ -809,10 +823,61 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         alert.runModal()
     }
 
-    @objc private func openGitHubIssues() {
-        if let url = URL(string: "https://github.com/EricBintner/PowerMateReborn/issues/new") {
-            NSWorkspace.shared.open(url)
+    @objc private func showIssueReporter() {
+        // If invoked from inside a modal alert (the About dialog's button), end the
+        // modal session first so the report window is actually interactive. Ordering
+        // the panel out async lets the session tear down before the window hides.
+        if let modalAlert = NSApp.modalWindow {
+            NSApp.stopModal()
+            DispatchQueue.main.async { modalAlert.orderOut(nil) }
         }
+
+        // Always build a fresh window: the snapshot and log tail should reflect
+        // the state at the moment the user reports the issue.
+        issueReportWindowController?.close()
+        let reportView = IssueReportView()
+        let hostingController = NSHostingController(rootView: reportView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Report Issue"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 560, height: 620))
+        window.minSize = NSSize(width: 480, height: 480)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        let controller = NSWindowController(window: window)
+        issueReportWindowController = controller
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Snapshot of app + device state included in issue reports.
+    func systemInfoForReport() -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersion
+        let osString = "macOS \(osVersion.majorVersion).\(osVersion.minorVersion)\(osVersion.patchVersion > 0 ? ".\(osVersion.patchVersion)" : "")"
+
+        let connected = powerMate.isConnected
+        let deviceLine = connected ? "Connected" : "Disconnected"
+
+        let vol = volumeController.getVolume()
+        let br = brightnessController.getCurrentBrightness()
+        let ddcEnabled = brightnessController.ddcController.isEnabled
+
+        var lines = [
+            "App: PowerMateReborn \(version) (\(build))",
+            "OS: \(osString)",
+            "Device: PowerMate \(deviceLine)",
+            "Mode: \(currentMode.rawValue)",
+            "Volume: \(Int(vol * 100))% via \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))",
+            "Brightness: \(Int(br * 100))% via \(brightnessController.method.rawValue), DDC/CI \(ddcEnabled ? "enabled" : "disabled")",
+            "Display: \(brightnessController.activeDisplayName)",
+        ]
+        if connected, let transport = powerMate.activeTransportName() {
+            lines.append("Transport: \(transport)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     @objc private func showCustomSettings() {

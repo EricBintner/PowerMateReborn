@@ -82,6 +82,11 @@ class PowerMateManager: PowerMateTransportDelegate {
         return transports.contains(where: { $0.isConnected })
     }
 
+    /// Name of the transport currently connected to the device, if any (for issue reports).
+    func activeTransportName() -> String? {
+        return transports.first(where: { $0.isConnected }).map { type(of: $0) == PowerMateBLETransport.self ? "Bluetooth" : "USB" }
+    }
+
     // MARK: - LED Control
 
     func setLEDBrightness(_ brightness: UInt8) {
