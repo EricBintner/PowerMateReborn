@@ -36,10 +36,10 @@ git status --short          # only expected: .DS_Store / .bug-hunt noise
 git push origin main        # ~21 commits are unpushed right now
 ```
 
-3. Confirm the notary profile resolves:
+3. Confirm the notary profile resolves (notarytool has no `--check` on this version; query the keychain directly):
 
 ```bash
-xcrun notarytool store-credentials --check --keychain-profile "PowerMate-Notarize"
+security find-generic-password -s "com.apple.gke.notary.tool" -a "PowerMate-Notarize"
 ```
 
 ## Phase 2 — Build, sign, notarize (one command)

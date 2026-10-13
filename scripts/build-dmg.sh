@@ -230,8 +230,8 @@ rm -rf "$DMG_DIR"
 # `xcrun notarytool store-credentials "PowerMate-Notarize"` step from
 # scripts/CODE_SIGNING.md. Skip deliberately with NOTARIZE=0.
 if [[ "${NOTARIZE:-1}" != "0" ]]; then
-    if xcrun notarytool store-credentials --check --keychain-profile "PowerMate-Notarize" >/dev/null 2>&1 \
-       || security find-generic-password -s "com.apple.gke.notary.tool" -a "PowerMate-Notarize" >/dev/null 2>&1; then
+    # notarytool stores profiles as keychain items: service com.apple.gke.notary.tool, account = profile name
+    if security find-generic-password -s "com.apple.gke.notary.tool" -a "PowerMate-Notarize" >/dev/null 2>&1; then
         echo "==> Submitting DMG for notarization (2-5 min)..."
         if xcrun notarytool submit "$DMG_PATH" --keychain-profile "PowerMate-Notarize" --wait; then
             echo "==> Stapling notarization ticket..."
