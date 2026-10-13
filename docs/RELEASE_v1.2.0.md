@@ -98,20 +98,50 @@ git push origin v1.2.0
 
 2. **Create the GitHub release** (web UI or `gh`), title `PowerMateReborn 1.2.0`, tag `v1.2.0`, and **upload `build/PowerMateReborn_v1.2.0.dmg` in the same sitting** — never re-use a DMG built in a previous session (PITFALLS Part 1 rule 3). Paste the release notes below.
 
-3. **Activate the appcast item immediately** — uncomment the v1.2.0 `<item>` block in [docs/appcast.xml](appcast.xml) (it sits directly above the v1.1.0 item, newest-first) and fill in the four `TO_BE_FILLED_AT_RELEASE` placeholders with the values from Phase 2:
+3. **Activate the appcast item immediately** — uncomment the v1.2.0 `<item>` block in [docs/appcast.xml](appcast.xml) (it sits directly above the v1.1.0 item, newest-first) and fill in the four `TO_BE_FILLED_AT_RELEASE` placeholders with the values from Phase 2. One command does both (tested against a copy of the appcast; it parses the result and fails if the item isn't first):
 
 ```bash
-python3 - <<'EOF'
-import subprocess
-# values from the build output; run from the repo root
-PUBDATE = "$(date -R)"          # replace with actual value when running
-BUILD   = "BUILD_FROM_PHASE_2"
-LENGTH  = "LENGTH_FROM_PHASE_2"
-EDSIG   = "EDDSA_FROM_PHASE_2"
+python3 - "$(date -R)" "BUILD_FROM_PHASE_2" "LENGTH_FROM_PHASE_2" "EDDSA_FROM_PHASE_2" <<'EOF'
+import sys
+pubdate, build, length, edsig = sys.argv[1:5]
+path = 'docs/appcast.xml'
+src = open(path).read()
+
+# The v1.2.0 section is ONE comment: from its opening marker to the first -->
+start = src.index('    <!-- v1.2.0 item goes HERE')
+end = src.index('-->', start) + 3
+block = src[start:end]
+
+# The real item inside the comment runs from the '<item>' line to '</item>'
+item_off = block.index('<item>')
+line_start = block.rindex('\n', 0, item_off) + 1
+item_end = block.index('</item>') + len('</item>')
+item_block = block[line_start:item_end]
+
+# Replace the whole comment with the uncommented item
+src = src[:start] + item_block + src[end:]
+
+# Fill placeholders, scoped to the v1.2.0 item (before the v1.1.0 title)
+cut = src.index('<title>Version 1.1.0')
+head, tail = src[:cut], src[cut:]
+head = head.replace('TO_BE_FILLED_AT_RELEASE</pubDate>', pubdate + '</pubDate>')
+head = head.replace('TO_BE_FILLED_AT_RELEASE</sparkle:version>', build + '</sparkle:version>')
+head = head.replace('length="TO_BE_FILLED_AT_RELEASE"', 'length="%s"' % length)
+head = head.replace('sparkle:edSignature="TO_BE_FILLED_AT_RELEASE"', 'sparkle:edSignature="%s"' % edsig)
+src = head + tail
+
+assert 'TO_BE_FILLED_AT_RELEASE' not in src
+import xml.dom.minidom
+doc = xml.dom.minidom.parseString(src)  # raises if malformed
+titles = [i.getElementsByTagName('title')[0].firstChild.data for i in doc.getElementsByTagName('item')]
+assert titles[0] == 'Version 1.2.0 (Settings Window & Stability Release)', titles
+assert len(titles) == 3, titles
+open(path, 'w').write(src)
+print('activated:', titles)
 EOF
 ```
 
-Then verify and publish:
+(Read the script before running it — trust, but verify.) Then verify and publish:
 
 ```bash
 xmllint --noout docs/appcast.xml
