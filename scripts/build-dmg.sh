@@ -6,6 +6,10 @@ set -euo pipefail
 #
 # Builds the app and packages it into a .dmg for distribution.
 # Pass --release for an optimized release build.
+# Also notarizes the DMG (Gatekeeper requirement) using the stored
+# "PowerMate-Notarize" keychain profile, then prints the final Sparkle
+# EdDSA signature. Set NOTARIZE=0 to skip notarization.
+# Override the version with POWERMATE_VERSION=X.Y.Z.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -99,7 +103,7 @@ install_name_tool -change "$SPARKLE_DEP" \
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # Generate Info.plist
-VERSION="${POWERMATE_VERSION:-1.1.0}"
+VERSION="${POWERMATE_VERSION:-1.2.0}"
 BUILD_NUMBER="${POWERMATE_BUILD:-$(date +%Y%m%d%H%M)}"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
@@ -220,16 +224,40 @@ hdiutil create \
 # Clean up staging
 rm -rf "$DMG_DIR"
 
-# Sign the DMG with EdDSA for Sparkle
-echo ""
+# Notarize the DMG (Gatekeeper blocks un-notarized DMG-installed apps on
+# modern macOS — the "can't be checked for malware" wall reported by issue #1
+# users; see docs/RELEASE_PITFALLS.md Part 2 item 3). Requires the one-time
+# `xcrun notarytool store-credentials "PowerMate-Notarize"` step from
+# scripts/CODE_SIGNING.md. Skip deliberately with NOTARIZE=0.
+if [[ "${NOTARIZE:-1}" != "0" ]]; then
+    if xcrun notarytool store-credentials --check --keychain-profile "PowerMate-Notarize" >/dev/null 2>&1 \
+       || security find-generic-password -s "com.apple.gke.notary.tool" -a "PowerMate-Notarize" >/dev/null 2>&1; then
+        echo "==> Submitting DMG for notarization (2-5 min)..."
+        if xcrun notarytool submit "$DMG_PATH" --keychain-profile "PowerMate-Notarize" --wait; then
+            echo "==> Stapling notarization ticket..."
+            xcrun stapler staple "$DMG_PATH"
+            xcrun stapler validate "$DMG_PATH"
+        else
+            echo "ERROR: notarization failed — DMG not notarized; do not publish."
+            echo "       Inspect: xcrun notarytool log <id> --keychain-profile PowerMate-Notarize"
+            exit 1
+        fi
+    else
+        echo "    WARNING: notary profile 'PowerMate-Notarize' not found in keychain."
+        echo "             Run scripts/CODE_SIGNING.md Step 2 (store-credentials), or re-run with NOTARIZE=0."
+        exit 1
+    fi
+fi
+
+# IMPORTANT: Sparkle's edSignature covers the exact DMG bytes. Notarization
+# (stapling) is ticket-only and doesn't change the file, but sign_update
+# above ran BEFORE notarization — regenerate the signature now so the
+# appcast always covers the final artifact.
 if [[ -f "$SIGN_UPDATE" ]]; then
-    echo "==> Signing DMG with EdDSA for Sparkle..."
+    echo ""
+    echo "==> Final Sparkle EdDSA signature (post-notarization)..."
     EDDSA_OUTPUT=$("$SIGN_UPDATE" "$DMG_PATH")
     echo "    $EDDSA_OUTPUT"
-    echo ""
-    echo "    Copy the above sparkle:edSignature and length into docs/appcast.xml"
-else
-    echo "    WARNING: sign_update not found. Run 'swift package resolve' to fetch Sparkle."
 fi
 
 echo ""

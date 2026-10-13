@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>PowerMateReborn Updates</title>
-    <link>https://raw.githubusercontent.com/EricBintner/PowerMateReborn/main/Docs/appcast.xml</link>
+    <link>https://ericbintner.github.io/PowerMateReborn/appcast.xml</link>
     <description>Updates for PowerMateReborn</description>
     <language>en</language>
 
@@ -19,6 +19,38 @@
         length="FILE_SIZE_BYTES"
         type="application/octet-stream"
         sparkle:edSignature="EDDSA_SIGNATURE"
+      />
+    </item>
+    -->
+
+    <!-- v1.2.0 item goes HERE after the DMG is built and signed (length/edSignature
+         come from build-dmg.sh's final sign_update output; build number from
+         the packaging run; pubDate from `date -R` at the moment of release).
+         Placeholder values below are overwritten by the release checklist
+         (docs/RELEASE_v1.2.0.md) — do not publish until all four are real.
+    <item>
+      <title>Version 1.2.0 (Settings Window &amp; Stability Release)</title>
+      <description><![CDATA[
+        <h2>What's new</h2>
+        <ul>
+          <li><b>New Settings window</b> — all advanced configuration (output device, modes, tap actions, sensitivity, LED, MIDI, displays, launch-at-login) moved out of the cramped status menu into a full window with General / Audio / Knob / Displays / MIDI / Custom sections. The Custom Mode editor is now part of it.</li>
+          <li><b>Fixed the launch crash on MacBooks</b> — a wrong private-API signature crashed the app at launch on Macs with a built-in display (iMacs/external-display-only Macs were unaffected).</li>
+          <li><b>In-app issue reporting</b> — Report Issue now pre-fills a GitHub issue with system info and recent logs.</li>
+          <li><b>Bluetooth stability</b> — time-boxed scanning with backoff; no more Bluetooth permission nag on launch.</li>
+          <li>Settings now save immediately on change (previously lost if the app was force-quit).</li>
+          <li>Long-press and double-tap timing are now adjustable (Settings > Knob > Advanced).</li>
+          <li>Many gesture, brightness, audio, and memory-leak fixes from a full hardware bug hunt.</li>
+        </ul>
+      ]]></description>
+      <pubDate>TO_BE_FILLED_AT_RELEASE</pubDate>
+      <sparkle:version>TO_BE_FILLED_AT_RELEASE</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.2.0/PowerMateReborn_v1.2.0.dmg"
+        length="TO_BE_FILLED_AT_RELEASE"
+        type="application/octet-stream"
+        sparkle:edSignature="TO_BE_FILLED_AT_RELEASE"
       />
     </item>
     -->
@@ -52,6 +84,7 @@
     </item>
 
     <!-- TEMPLATE: For future releases, copy the <item> block above and place it BEFORE this comment. Newest first. -->
+
 
   </channel>
 </rss>
