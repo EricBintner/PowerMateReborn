@@ -37,20 +37,21 @@ Copy the full name in quotes — you'll need it for signing.
 
 Notarization requires an app-specific password (NOT your Apple ID password):
 
-1. Go to https://appleid.apple.com/account/manage
+1. Go to https://account.apple.com and sign in
 2. Under **Sign-In and Security**, click **App-Specific Passwords**
 3. Click **+**, name it "PowerMate Notarization"
 4. Copy the generated password (format: `xxxx-xxxx-xxxx-xxxx`)
 
-Store it in your Keychain for easy reuse:
+Apple shows an app-specific password only once. If you've lost an old one, you can't view it again: create a new one (old ones keep working until you revoke them).
+
+Store it in your Keychain for easy reuse. Leave `--password` off so notarytool prompts for it instead of saving it in your shell history:
 ```bash
 xcrun notarytool store-credentials "PowerMate-Notarize" \
   --apple-id "your@email.com" \
-  --team-id "YOUR_TEAM_ID" \
-  --password "xxxx-xxxx-xxxx-xxxx"
+  --team-id "FU96NT58N5"
 ```
 
-Find your Team ID at https://developer.apple.com/account — it's the 10-character string next to your name.
+The team ID must match the signing certificate (`Developer ID Application: Eric Bintner (FU96NT58N5)`). If your Apple ID belongs to more than one team, `--team-id` is what picks the right one; the app-specific password belongs to the Apple ID, so it's the same for every team.
 
 ## Step 3: Build & Sign
 

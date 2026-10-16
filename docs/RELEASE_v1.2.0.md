@@ -13,9 +13,10 @@ Notarization credentials (from [scripts/CODE_SIGNING.md](../scripts/CODE_SIGNING
 ```bash
 xcrun notarytool store-credentials "PowerMate-Notarize" \
   --apple-id "YOUR_APPLE_ID" \
-  --team-id "YOUR_TEAM_ID" \
-  --password "xxxx-xxxx-xxxx-xxxx"
+  --team-id "FU96NT58N5"
 ```
+
+It prompts for the app-specific password (not your Apple ID password). Lost it? Make a new one at account.apple.com → Sign-In and Security → App-Specific Passwords; Apple never shows an existing one again. Your Apple ID is on two teams: `--team-id FU96NT58N5` matches the Developer ID certificate, so notarization goes to the right one.
 
 Verify the Developer ID signing cert exists (build-dmg.sh hardcodes the identity, so it fails loudly if missing):
 
@@ -179,6 +180,8 @@ This release fixes a **launch crash on Macs with a built-in display** (MacBooks,
 
 ### Also in this release
 
+- Fixed: double-tap in Brightness mode put the whole Mac to sleep — it now turns off only the displays
+- Status menu ready for macOS 27, which hides menu icons (no stray blank icon spacing)
 - Settings save immediately on change (previously lost on force-quit)
 - Adjustable long-press / double-tap timing (Settings → Knob → Advanced)
 - Fixed: CoreAudio listener leaks on every device switch
