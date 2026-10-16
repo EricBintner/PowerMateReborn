@@ -76,6 +76,9 @@ class BrightnessController {
     // Per-display preferences: display serial -> last brightness level
     private var displayPreferences: [String: Float] = [:]
 
+    // Coalesces wake recovery: a system wake posts both didWake and screensDidWake
+    private var pendingWakeRecovery: DispatchWorkItem?
+
     init() {
         if UserDefaults.standard.object(forKey: "powermate.brightness.sync") != nil {
             syncDisplays = UserDefaults.standard.bool(forKey: "powermate.brightness.sync")
@@ -402,10 +405,17 @@ class BrightnessController {
         return method.isSoftware
     }
 
+    /// Sleep the displays only. (System Events' `sleep` puts the whole Mac to
+    /// sleep.) pmset needs no root and no Automation permission.
     func sleepDisplay() {
-        let script = NSAppleScript(source: "tell application \"System Events\" to sleep")
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
+        let pmset = Process()
+        pmset.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        pmset.arguments = ["displaysleepnow"]
+        do {
+            try pmset.run()
+        } catch {
+            NSLog("Brightness: display sleep failed: %@", error.localizedDescription)
+        }
     }
 
     // MARK: - Night Mode
@@ -549,15 +559,37 @@ class BrightnessController {
             }
         }, Unmanaged.passUnretained(self).toOpaque())
 
+        // Display-only wake (idle display sleep, double-tap display sleep) can
+        // reset gamma and break IOAVService handles just like a system wake.
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.scheduleWakeRecovery()
+            }
+        }
+
+        // Displays went back to sleep before recovery ran: drop it. The DDC
+        // reprobe reads I2C, and some monitors wake on DDC traffic.
         NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
+            forName: NSWorkspace.screensDidSleepNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                self?.onSystemWake()
-            }
+            self?.pendingWakeRecovery?.cancel()
+            self?.pendingWakeRecovery = nil
         }
+    }
+
+    private func scheduleWakeRecovery() {
+        pendingWakeRecovery?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.onSystemWake()
+        }
+        pendingWakeRecovery = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
     private func onDisplayReconfigured() {
@@ -583,7 +615,7 @@ class BrightnessController {
 
     private func onSystemWake() {
         // Sleep/wake often breaks IOAVService handles, force a full DDC reprobe
-        NSLog("Brightness: System woke from sleep, re-probing displays...")
+        NSLog("Brightness: System or displays woke from sleep, re-probing displays...")
         ddcController.probeDisplays()
         onDisplayReconfigured()
     }

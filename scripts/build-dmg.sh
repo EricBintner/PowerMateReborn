@@ -142,7 +142,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>PowerMateReborn uses Bluetooth to communicate with the Griffin PowerMate Bluetooth controller.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>PowerMateReborn uses AppleScript to set system volume on devices without hardware volume control, and to put the display to sleep.</string>
+    <string>PowerMateReborn uses AppleScript to set system volume on devices without hardware volume control.</string>
 </dict>
 </plist>
 PLIST

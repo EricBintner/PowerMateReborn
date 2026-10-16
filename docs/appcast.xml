@@ -37,6 +37,7 @@
           <li><b>Fixed the launch crash on MacBooks</b> — a wrong private-API signature crashed the app at launch on Macs with a built-in display (iMacs/external-display-only Macs were unaffected).</li>
           <li><b>In-app issue reporting</b> — Report Issue now pre-fills a GitHub issue with system info and recent logs.</li>
           <li><b>Bluetooth stability</b> — time-boxed scanning with backoff; no more Bluetooth permission nag on launch.</li>
+          <li>Double-tap in Brightness mode now turns off only the displays (it used to put the whole Mac to sleep).</li>
           <li>Settings now save immediately on change (previously lost if the app was force-quit).</li>
           <li>Long-press and double-tap timing are now adjustable (Settings > Knob > Advanced).</li>
           <li>Many gesture, brightness, audio, and memory-leak fixes from a full hardware bug hunt.</li>
