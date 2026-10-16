@@ -154,15 +154,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let statusTitle = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Disconnected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         let dotColor: NSColor = powerMate.isConnected ? .systemGreen : .systemGray
-        if let img = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: powerMate.isConnected ? "Connected" : "Disconnected") {
-            let coloredImage = img.copy() as! NSImage
-            coloredImage.isTemplate = false
-            coloredImage.lockFocus()
-            dotColor.set()
-            let rect = NSRect(origin: .zero, size: img.size)
-            rect.fill(using: .sourceAtop)
-            coloredImage.unlockFocus()
-            statusMenuItem.image = coloredImage
+        if let symbol = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
+            // Drawn (non-symbol) image so the color sticks. macOS 27 also keeps
+            // non-symbol menu images visible for apps built on pre-27 SDKs.
+            let dot = NSImage(size: symbol.size, flipped: false) { rect in
+                symbol.draw(in: rect)
+                dotColor.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+            dot.accessibilityDescription = powerMate.isConnected ? "Connected" : "Disconnected"
+            statusMenuItem.image = dot
+            keepImageVisible(statusMenuItem)
         }
         menu.addItem(statusMenuItem)
         
@@ -187,6 +190,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             item.representedObject = mode.rawValue
             if let img = NSImage(systemSymbolName: mode.icon, accessibilityDescription: nil) {
                 item.image = img
+                keepImageVisible(item)
             }
             if isCurrent { item.state = .on }
             modeMenu.addItem(item)
@@ -211,10 +215,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(volLabel)
 
         let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Unmute" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
-        // Use an empty image to perfectly align the text with the item above it
-        if let templateImg = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil) {
-            muteItem.image = NSImage(size: templateImg.size)
-        }
+        setAlignmentSpacer(muteItem, matching: "speaker.wave.2.fill")
         muteItem.target = self
         menu.addItem(muteItem)
 
@@ -235,10 +236,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Brightness warning when using software dimming
         if brMethod.isSoftware {
             let warnItem = NSMenuItem(title: "Using software dimming (backlight unchanged)", action: nil, keyEquivalent: "")
-            // Use an empty image to perfectly align the text with the item above it
-            if let templateImg = NSImage(systemSymbolName: "sun.max.fill", accessibilityDescription: nil) {
-                warnItem.image = NSImage(size: templateImg.size)
-            }
+            setAlignmentSpacer(warnItem, matching: "sun.max.fill")
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                 .foregroundColor: NSColor.secondaryLabelColor
@@ -252,10 +250,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Settings — all advanced configuration lives in the Settings window.
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
-        // Use an empty image to perfectly align the text with other menu items
-        if let templateImg = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil) {
-            settingsItem.image = NSImage(size: templateImg.size)
-        }
+        setAlignmentSpacer(settingsItem, matching: "gearshape")
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -263,19 +258,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // About
         let aboutItem = NSMenuItem(title: "About PowerMate...", action: #selector(showAboutWindow), keyEquivalent: "")
         aboutItem.target = self
-        // Use an empty image to perfectly align the text with other menu items
-        if let templateImg = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) {
-            aboutItem.image = NSImage(size: templateImg.size)
-        }
+        setAlignmentSpacer(aboutItem, matching: "info.circle")
         menu.addItem(aboutItem)
 
         // Report Issue (above Check for Updates, matching the About dialog entry point)
         let reportItem = NSMenuItem(title: "Report Issue...", action: #selector(showIssueReporter), keyEquivalent: "")
         reportItem.target = self
-        // Use an empty image to perfectly align the text with other menu items
-        if let templateImg = NSImage(systemSymbolName: "exclamationmark.bubble.fill", accessibilityDescription: nil) {
-            reportItem.image = NSImage(size: templateImg.size)
-        }
+        setAlignmentSpacer(reportItem, matching: "exclamationmark.bubble.fill")
         menu.addItem(reportItem)
 
         // Add update check menu item
@@ -284,22 +273,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         if updaterController == nil {
             updateItem.isEnabled = false
         }
-        // Use an empty image to perfectly align the text with other menu items
-        if let templateImg = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil) {
-            updateItem.image = NSImage(size: templateImg.size)
-        }
+        setAlignmentSpacer(updateItem, matching: "arrow.down.circle")
         menu.addItem(updateItem)
 
         let quitItem = NSMenuItem(title: "Quit PowerMate", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
-        // Use an empty image to perfectly align the text with other menu items
-        if let templateImg = NSImage(systemSymbolName: "power.circle", accessibilityDescription: nil) {
-            quitItem.image = NSImage(size: templateImg.size)
-        }
+        setAlignmentSpacer(quitItem, matching: "power.circle")
         menu.addItem(quitItem)
 
         statusItem.menu = menu
         updateMenuLevels()
+    }
+
+    // macOS 27 hides menu item images by default: symbol images for apps built
+    // on the 26 SDK, every image for apps built on the 27 SDK.
+
+    /// Blank image the size of a symbol, so a title lines up with the iconned
+    /// items around it. Skipped on macOS 27+, where those icons are hidden.
+    private func setAlignmentSpacer(_ item: NSMenuItem, matching symbolName: String) {
+        if #available(macOS 27, *) { return }
+        if let templateImg = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) {
+            item.image = NSImage(size: templateImg.size)
+        }
+    }
+
+    /// Keep an icon that carries information (connection state, mode) visible
+    /// on macOS 27+. `preferredImageVisibility` only exists in the macOS 27 SDK;
+    /// AccessoryAccess is new in that SDK, so it gates the call until we build
+    /// with Xcode 27.
+    private func keepImageVisible(_ item: NSMenuItem) {
+        #if canImport(AccessoryAccess)
+        if #available(macOS 27, *) {
+            item.preferredImageVisibility = .visible
+        }
+        #endif
     }
 
     private func refreshMenu() {
