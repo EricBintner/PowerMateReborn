@@ -46,7 +46,7 @@ Apple shows an app-specific password only once. If you've lost an old one, you c
 
 Store it in your Keychain for easy reuse. Leave `--password` off so notarytool prompts for it instead of saving it in your shell history:
 ```bash
-xcrun notarytool store-credentials "PowerMate-Notarize" \
+xcrun notarytool store-credentials "PowerMate-Notarization2" \
   --apple-id "your@email.com" \
   --team-id "FU96NT58N5"
 ```
@@ -82,7 +82,7 @@ hdiutil create -volname "PowerMateReborn" \
 ```bash
 # Submit for notarization (uses stored credentials from Step 2)
 xcrun notarytool submit build/PowerMateReborn_v1.1.0.dmg \
-  --keychain-profile "PowerMate-Notarize" \
+  --keychain-profile "PowerMate-Notarization2" \
   --wait
 
 # If successful, staple the notarization ticket to the DMG
@@ -93,7 +93,7 @@ The `--wait` flag blocks until Apple's servers finish checking (usually 2-5 minu
 
 If it fails, check the log:
 ```bash
-xcrun notarytool log <submission-id> --keychain-profile "PowerMate-Notarize"
+xcrun notarytool log <submission-id> --keychain-profile "PowerMate-Notarization2"
 ```
 
 ## Step 5: Upload to GitHub
@@ -137,7 +137,7 @@ hdiutil create -volname "PowerMateReborn" \
 
 # Notarize
 xcrun notarytool submit build/PowerMateReborn_v1.1.0.dmg \
-  --keychain-profile "PowerMate-Notarize" --wait
+  --keychain-profile "PowerMate-Notarization2" --wait
 xcrun stapler staple build/PowerMateReborn_v1.1.0.dmg
 
 # Sparkle signing

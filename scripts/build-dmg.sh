@@ -7,8 +7,8 @@ set -euo pipefail
 # Builds the app and packages it into a .dmg for distribution.
 # Pass --release for an optimized release build.
 # Also notarizes the DMG (Gatekeeper requirement) using the stored
-# "PowerMate-Notarize" keychain profile, then prints the final Sparkle
-# EdDSA signature. Set NOTARIZE=0 to skip notarization.
+# notarytool keychain profile (NOTARY_PROFILE, default below), then prints
+# the final Sparkle EdDSA signature. Set NOTARIZE=0 to skip notarization.
 # Override the version with POWERMATE_VERSION=X.Y.Z.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +20,8 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 SIGN_IDENTITY="Developer ID Application: Eric Bintner (FU96NT58N5)"
 ENTITLEMENTS="$PROJECT_DIR/PowerMateDriver.entitlements"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+# Profile name given to `xcrun notarytool store-credentials "<name>"`
+NOTARY_PROFILE="${NOTARY_PROFILE:-PowerMate-Notarization2}"
 
 # Parse args
 BUILD_CONFIG="debug"
@@ -227,24 +229,27 @@ rm -rf "$DMG_DIR"
 # Notarize the DMG (Gatekeeper blocks un-notarized DMG-installed apps on
 # modern macOS — the "can't be checked for malware" wall reported by issue #1
 # users; see docs/RELEASE_PITFALLS.md Part 2 item 3). Requires the one-time
-# `xcrun notarytool store-credentials "PowerMate-Notarize"` step from
+# `xcrun notarytool store-credentials "$NOTARY_PROFILE"` step from
 # scripts/CODE_SIGNING.md. Skip deliberately with NOTARIZE=0.
 if [[ "${NOTARIZE:-1}" != "0" ]]; then
-    # notarytool stores profiles as keychain items: service com.apple.gke.notary.tool, account = profile name
-    if security find-generic-password -s "com.apple.gke.notary.tool" -a "PowerMate-Notarize" >/dev/null 2>&1; then
+    # Ask notarytool itself: current versions keep profiles where
+    # `security find-generic-password` can't see them, so that check
+    # reported real profiles as missing. This also validates the password.
+    if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
         echo "==> Submitting DMG for notarization (2-5 min)..."
-        if xcrun notarytool submit "$DMG_PATH" --keychain-profile "PowerMate-Notarize" --wait; then
+        if xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait; then
             echo "==> Stapling notarization ticket..."
             xcrun stapler staple "$DMG_PATH"
             xcrun stapler validate "$DMG_PATH"
         else
             echo "ERROR: notarization failed — DMG not notarized; do not publish."
-            echo "       Inspect: xcrun notarytool log <id> --keychain-profile PowerMate-Notarize"
+            echo "       Inspect: xcrun notarytool log <id> --keychain-profile \"$NOTARY_PROFILE\""
             exit 1
         fi
     else
-        echo "    WARNING: notary profile 'PowerMate-Notarize' not found in keychain."
-        echo "             Run scripts/CODE_SIGNING.md Step 2 (store-credentials), or re-run with NOTARIZE=0."
+        echo "    WARNING: notary profile '$NOTARY_PROFILE' is missing or its password was rejected."
+        echo "             Run scripts/CODE_SIGNING.md Step 2 (store-credentials), set NOTARY_PROFILE=<name>,"
+        echo "             or re-run with NOTARIZE=0."
         exit 1
     fi
 fi

@@ -11,7 +11,7 @@ Target: `v1.2.0` — "Settings Window & Stability Release" (29 commits since v1.
 Notarization credentials (from [scripts/CODE_SIGNING.md](../scripts/CODE_SIGNING.md) Step 2):
 
 ```bash
-xcrun notarytool store-credentials "PowerMate-Notarize" \
+xcrun notarytool store-credentials "PowerMate-Notarization2" \
   --apple-id "YOUR_APPLE_ID" \
   --team-id "FU96NT58N5"
 ```
@@ -37,10 +37,10 @@ git status --short          # only expected: .DS_Store / .bug-hunt noise
 git push origin main        # ~21 commits are unpushed right now
 ```
 
-3. Confirm the notary profile resolves (notarytool has no `--check` on this version; query the keychain directly):
+3. Confirm the notary profile works — it should print "Successfully received submission history". (Don't use `security find-generic-password`: current notarytool keeps profiles where it can't see them, so it reports real profiles as missing.)
 
 ```bash
-security find-generic-password -s "com.apple.gke.notary.tool" -a "PowerMate-Notarize"
+xcrun notarytool history --keychain-profile "PowerMate-Notarization2"
 ```
 
 ## Phase 2 — Build, sign, notarize (one command)
@@ -59,7 +59,7 @@ Copy the final output lines for the next phase:
 plutil -extract CFBundleVersion raw build/PowerMateReborn.app/Contents/Info.plist
 ```
 
-If notarization fails: `xcrun notarytool log <submission-id> --keychain-profile "PowerMate-Notarize"` — do not publish.
+If notarization fails: `xcrun notarytool log <submission-id> --keychain-profile "PowerMate-Notarization2"` — do not publish.
 
 ## Phase 3 — Verify the artifact (the v1.1.0 lesson)
 
