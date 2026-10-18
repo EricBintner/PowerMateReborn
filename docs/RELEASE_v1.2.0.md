@@ -1,6 +1,6 @@
 # Release v1.2.0 — Runbook
 
-**Status: PREPARED — not yet built or published.** Work through top to bottom; do not skip the verify steps. Every "STOP" in here exists because a past release shipped wrong (see [RELEASE_PITFALLS.md](RELEASE_PITFALLS.md)).
+**Status: PUBLISHED 2026-10-18** — build 202610181420, notarized, tag `v1.2.0`, appcast live. Kept as the template for the next release. Work through top to bottom; do not skip the verify steps. Every "STOP" in here exists because a past release shipped wrong (see [RELEASE_PITFALLS.md](RELEASE_PITFALLS.md)).
 
 Target: `v1.2.0` — "Settings Window & Stability Release" (29 commits since v1.1.0)
 
@@ -192,5 +192,5 @@ This release fixes a **launch crash on Macs with a built-in display** (MacBooks,
 - Custom Mode: Accessibility permission now surfaced when missing; event-monitor leak and profile-index crash fixed
 - Sparkle updater no longer starts with a broken/placeholder update config
 
-**Requirements:** macOS 13+. If you use Custom Mode scroll/keyboard actions, grant Accessibility permission (System Settings → Privacy & Security → Accessibility).
+**Requirements:** macOS 13+ on an Apple silicon Mac. If you use Custom Mode scroll/keyboard actions, grant Accessibility permission (System Settings → Privacy & Security → Accessibility).
 ```

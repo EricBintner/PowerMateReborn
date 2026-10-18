@@ -23,11 +23,6 @@
     </item>
     -->
 
-    <!-- v1.2.0 item goes HERE after the DMG is built and signed (length/edSignature
-         come from build-dmg.sh's final sign_update output; build number from
-         the packaging run; pubDate from `date -R` at the moment of release).
-         Placeholder values below are overwritten by the release checklist
-         (docs/RELEASE_v1.2.0.md) — do not publish until all four are real.
     <item>
       <title>Version 1.2.0 (Settings Window &amp; Stability Release)</title>
       <description><![CDATA[
@@ -43,18 +38,17 @@
           <li>Many gesture, brightness, audio, and memory-leak fixes from a full hardware bug hunt.</li>
         </ul>
       ]]></description>
-      <pubDate>TO_BE_FILLED_AT_RELEASE</pubDate>
-      <sparkle:version>TO_BE_FILLED_AT_RELEASE</sparkle:version>
+      <pubDate>Sun, 18 Oct 2026 14:50:52 -0400</pubDate>
+      <sparkle:version>202610181420</sparkle:version>
       <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <enclosure
         url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.2.0/PowerMateReborn_v1.2.0.dmg"
-        length="TO_BE_FILLED_AT_RELEASE"
+        length="2223077"
         type="application/octet-stream"
-        sparkle:edSignature="TO_BE_FILLED_AT_RELEASE"
+        sparkle:edSignature="YUBm05AbGLDYksT8uvSko1J5cmfpHNsft3SgQRuJrhwri9GFpMSvLaRAQLyuRzEEgThbPQ/+Qj2Jq4qxGGW4AQ=="
       />
     </item>
-    -->
 
     <item>
       <title>Version 1.1.0 (Beta Bluetooth Support)</title>
