@@ -24,6 +24,27 @@
     -->
 
     <item>
+      <title>Version 1.2.1 (Display Sleep Fix)</title>
+      <description><![CDATA[
+        <h2>What's new</h2>
+        <ul>
+          <li><b>Fixed: the USB PowerMate could keep your displays from ever going to sleep.</b> macOS read the knob's LED status as a media key held down. PowerMateReborn now takes exclusive control of the knob while it's running, so macOS no longer misreads it.</li>
+          <li>Turning or pressing the knob still counts as activity, like moving the mouse: it wakes the screens and postpones display sleep.</li>
+        </ul>
+      ]]></description>
+      <pubDate>Sun, 18 Oct 2026 23:30:47 -0400</pubDate>
+      <sparkle:version>202610182329</sparkle:version>
+      <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.2.1/PowerMateReborn_v1.2.1.dmg"
+        length="2224815"
+        type="application/octet-stream"
+        sparkle:edSignature="hd/oG/q6lphy/ygVPBdt7Qi+u6eKS7Hpu3+e9q5rovibsCUK9ErxDuLt4xQXiDfGKJCxDPmmKlOtHqi+nD/qCg=="
+      />
+    </item>
+
+    <item>
       <title>Version 1.2.0 (Settings Window &amp; Stability Release)</title>
       <description><![CDATA[
         <h2>What's new</h2>

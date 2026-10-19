@@ -1,5 +1,7 @@
 # Release v1.2.1 — Display Sleep Fix
 
+**Status: PUBLISHED 2026-10-18** — build 202610182329, notarized, tag `v1.2.1`, appcast live.
+
 Follows the [v1.2.0 runbook](RELEASE_v1.2.0.md) (build → verify → tag → GitHub release → appcast). Notarization uses the `PowerMate-Notarization2` keychain profile (`scripts/build-dmg.sh` default).
 
 Root cause and measurements: [.bug-hunt/TESTING.md](../.bug-hunt/TESTING.md) item 4 and [RELEASE_PITFALLS.md](RELEASE_PITFALLS.md) Part 3 item 1.
