@@ -105,7 +105,7 @@ install_name_tool -change "$SPARKLE_DEP" \
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # Generate Info.plist
-VERSION="${POWERMATE_VERSION:-1.2.0}"
+VERSION="${POWERMATE_VERSION:-1.2.1}"
 BUILD_NUMBER="${POWERMATE_BUILD:-$(date +%Y%m%d%H%M)}"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
