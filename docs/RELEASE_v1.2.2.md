@@ -1,5 +1,7 @@
 # Release v1.2.2 — Mute and Issue Report Fixes
 
+**Status: PUBLISHED 2026-10-19** — build 202610191217, notarized, tag `v1.2.2`, appcast live.
+
 Follows the [v1.2.0 runbook](RELEASE_v1.2.0.md) (build → verify → tag → GitHub release → appcast). Notarization uses the `PowerMate-Notarization2` keychain profile (`scripts/build-dmg.sh` default).
 
 Fixes a user report (macOS 26.7.1, Mac mini M2 Pro, Dayton Audio M4 USB speakers): the knob didn't unmute after a keyboard mute, 0% wasn't fully silent, and Report Issue failed with "Malformed request".

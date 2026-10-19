@@ -24,6 +24,28 @@
     -->
 
     <item>
+      <title>Version 1.2.2 (Mute and Issue Report Fixes)</title>
+      <description><![CDATA[
+        <h2>What's new</h2>
+        <ul>
+          <li><b>Fixed: the knob didn't unmute after muting with the keyboard.</b> Turning the knob now unmutes, like the volume slider in Control Center.</li>
+          <li><b>Fixed: 0% wasn't completely silent on some USB speakers.</b> Turning the knob down to 0% now mutes the output, the same as the keyboard's volume keys.</li>
+          <li><b>Fixed: Report Issue opened a "Malformed request" page.</b> It now copies the full report, logs included, to your clipboard and opens the issue with your description and system info filled in.</li>
+        </ul>
+      ]]></description>
+      <pubDate>Mon, 19 Oct 2026 12:19:14 -0400</pubDate>
+      <sparkle:version>202610191217</sparkle:version>
+      <sparkle:shortVersionString>1.2.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.2.2/PowerMateReborn_v1.2.2.dmg"
+        length="2225369"
+        type="application/octet-stream"
+        sparkle:edSignature="yp6cMuunIYeySeh2iCB0j1rfHIHeSo8GacUej8xEwJz4cJVFdGvWFQfBHHHkSLUgm3epeqfD+MydWxdsls7oDQ=="
+      />
+    </item>
+
+    <item>
       <title>Version 1.2.1 (Display Sleep Fix)</title>
       <description><![CDATA[
         <h2>What's new</h2>
