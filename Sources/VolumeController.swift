@@ -167,6 +167,22 @@ class VolumeController {
             case .none:             break
             default:                break
             }
+            syncMute(toLevel: clamped)
+        }
+    }
+
+    /// Mirror macOS's volume keys and slider: 0 mutes, anything above 0
+    /// unmutes. Otherwise a keyboard mute (F10, or F11 down to 0) stays on
+    /// while the knob moves the level silently underneath it, and some USB
+    /// speakers are still faintly audible at a 0.0 scalar.
+    /// Devices without a hardware or AppleScript mute use the simulated mute.
+    private func syncMute(toLevel level: Float) {
+        guard let info = activeDeviceInfo else { return }
+        let mute = level <= 0.0
+        if info.hasMute && info.isMuteSettable {
+            if getCoreAudioMute() != mute { setCoreAudioMute(mute) }
+        } else if volumeMethod == .appleScript {
+            if getAppleScriptMute() != mute { setAppleScriptMute(mute) }
         }
     }
 
