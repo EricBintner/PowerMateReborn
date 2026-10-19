@@ -76,39 +76,38 @@ enum IssueReporter {
     }
 
     /// Prefills the GitHub new-issue form via query params (title + body).
-    /// GitHub rejects very long URLs, so the log section is trimmed until it fits.
-    static func githubIssueURL(title: String, description: String, includeLogs: Bool, logTail: String) -> URL? {
+    /// Logs never go in the URL: GitHub answers "Malformed request" (HTTP 400)
+    /// once a prefilled body holds enough log-style text — about 4,200
+    /// characters, far below its URL length limit — so the caller copies the
+    /// full report to the clipboard and the body asks for it to be pasted.
+    static func githubIssueURL(title: String, description: String, includeLogs: Bool) -> URL? {
         let cleanTitle = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
-        var logs = logTail
-        var desc = description
-        var lastURL: URL?
-        for _ in 0..<24 {
-            let body = buildReportBody(description: desc, includeLogs: includeLogs && !logs.isEmpty, logTail: logs)
-            guard let url = makeURL(title: cleanTitle, body: body) else { return nil }
-            lastURL = url
-            if url.absoluteString.count <= 7800 { return url }
-            // Too long for GitHub: shrink, logs first, then the description
-            if logs.count > 500 {
-                logs = String(logs.prefix(logs.count / 2))
-            } else if !logs.isEmpty {
-                logs = ""
-            } else if desc.count > 500 {
-                desc = String(desc.prefix(500)) + "\n…(truncated)"
-            } else {
-                break
+        var limit = description.count
+        while true {
+            let desc = limit < description.count
+                ? String(description.prefix(limit)) + "\n\n…(truncated — the full report is on your clipboard)"
+                : description
+            var body = buildReportBody(description: desc, includeLogs: false, logTail: "")
+            if includeLogs {
+                body += "\n\n### Recent App Logs\n_PowerMateReborn copied the full report, including recent logs, to your clipboard. Paste it here._"
             }
+            guard let url = makeURL(title: cleanTitle, body: body) else { return nil }
+            if url.absoluteString.count <= 3500 || limit <= 200 { return url }
+            limit = limit * 3 / 4
         }
-        return lastURL
     }
 
     private static func makeURL(title: String, body: String) -> URL? {
-        var components = URLComponents(url: repositoryURL.appendingPathComponent("issues/new"),
-                                        resolvingAgainstBaseURL: false)
-        components?.queryItems = [
+        guard var components = URLComponents(url: repositoryURL.appendingPathComponent("issues/new"),
+                                              resolvingAgainstBaseURL: false) else { return nil }
+        components.queryItems = [
             URLQueryItem(name: "title", value: title),
             URLQueryItem(name: "body", value: body)
         ]
-        return components?.url
+        // URLComponents leaves "+" as-is, which GitHub decodes as a space
+        let query = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        components.percentEncodedQuery = query
+        return components.url
     }
 }
 
@@ -131,7 +130,7 @@ struct IssueReportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Describe the problem — we'll open a GitHub issue with your system info and recent logs attached.")
+            Text("Describe the problem — we'll open a GitHub issue with your system info filled in, and copy the full report with recent logs to your clipboard.")
                 .font(.callout)
                 .foregroundColor(.secondary)
 
@@ -169,7 +168,7 @@ struct IssueReportView: View {
             if includeLogs {
                 VStack(alignment: .leading, spacing: 4) {
                     infoBox(logTail.isEmpty ? "(no logs captured)" : logTail, height: 150)
-                    Text("Logs may contain names of your audio devices and apps. Very long logs are trimmed to fit the GitHub page — use Copy Report for the full version.")
+                    Text("Logs may contain names of your audio devices and apps. GitHub can't take logs in a link, so they go to your clipboard: paste them into the issue.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -216,22 +215,24 @@ struct IssueReportView: View {
     }
 
     private func openGitHubIssue() {
+        // The full report (with logs, and any description the URL had to trim)
+        // goes to the clipboard first; the prefilled issue asks for it.
+        copyReport(feedback: "Full report copied — paste it into the GitHub issue")
         let url = IssueReporter.githubIssueURL(title: effectiveTitle,
                                                description: issueDescription,
-                                               includeLogs: includeLogs,
-                                               logTail: logTail)
+                                               includeLogs: includeLogs)
             ?? IssueReporter.repositoryURL.appendingPathComponent("issues/new")
         NSWorkspace.shared.open(url)
     }
 
-    private func copyReport() {
+    private func copyReport(feedback: String = "Report copied to clipboard") {
         let body = IssueReporter.buildReportBody(description: issueDescription,
                                                  includeLogs: includeLogs,
                                                  logTail: logTail)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(effectiveTitle + "\n\n" + body, forType: .string)
-        copiedFeedback = "Report copied to clipboard"
+        copiedFeedback = feedback
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { copiedFeedback = nil }
     }
 }
