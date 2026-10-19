@@ -19,7 +19,7 @@
    - App running, 3-min idle monitor (nobody touching anything): WindowServer `UserIsActive` tickle assertion attributed to `AppleUserHIDEventService product:Griffin PowerMate eventType:3` was freshly re-tickled (age 00:00:00) in **all 6 samples**. The app's own log stayed at 34 lines — the app saw no rotation events.
    - **App killed** (pkill, confirmed dead), 2.5-min monitor: tickle still fresh in **all 10 samples** — the phantom activity does NOT come from the app.
    - Passive userspace sniffer (`.bug-hunt/hid-sniffer.swift`, IOHIDDeviceRegisterInputReportCallback): **zero raw input reports in 90s** — the phantom scroll tickles originate below the app-visible report level (kernel HID event system / hub remote-wakeup noise; the knob sits behind a GenesysLogic 4-port USB hub per `ioreg`).
-   - Conclusion: D-hatu's "preventing sleep" is a **hardware/USB-stack interaction, not app-caused** — it persists with the app dead. User-side mitigations: plug the PowerMate directly into the Mac (no hub), try another port/cable/hub, or reduce display-sleep sensitivity. Worth documenting in README/issues as "known: certain USB hubs + PowerMate keep the display awake".
+   - ~~Conclusion: hardware/USB-stack interaction, not app-caused.~~ **Corrected 2026-10-18 — root cause found and fixed in the app.** HIDIdleTime resets every 83.5 ms (median of 36 resets in 3 s, sampled at 2 ms) = the user's `HIDKeyRepeat` (83.3 ms): macOS believes a key on the knob is *held* and auto-repeats it, which is why no raw reports showed up. The knob's descriptor (usage page 0x0C) declares input bytes 2–5 as Consumer usage 0x01, values 0–255; the live report is `00 00 00 ff 10 00` (byte 3 = LED brightness echo, byte 4 = LED status flags), so any knob report sent while the LED is lit registers as a held media key until the event system is reset. It persists with the app dead because the held state lives in macOS's HID event system, not in the app. Fix: `PowerMateUSBTransport` opens the knob with `kIOHIDOptionsTypeSeizeDevice` so the HID event system stops interpreting its reports (no TCC prompt needed), and `PowerMateManager` declares user activity (`IOPMAssertionDeclareUserActivity`, ≤1/s) on real turns/presses so the knob still wakes the display like a mouse. Measured after the fix, right after a knob turn: 0 resets in 3 s, idle climbing past 10 s, WindowServer activity credited to the mouse, not the knob. With the app not running, a knob report can still re-stick the key (released on the next app launch).
    - Separately confirmed live: the app's BLE transport scans forever (`BLE: Scanning...` at 09:20:16, no stop) whenever Bluetooth is on and no BLE PowerMate exists — keeps bluetoothd holding `PreventUserIdleSystemSleep` (com.apple.BTStack, visible in every early sample). On Macs using the Bluetooth knob this compounds the sleep problem and IS app-caused (fix: scan timeout in `PowerMateBLETransport.startScanning`). Also `CBCentralManagerOptionShowPowerAlertKey: true` (PowerMateBLETransport.swift:48) pops a "Turn on Bluetooth?" nag for USB-only users on fresh installs.
 
 5. **DDC/CI broken on this very setup**: the app's DDC probe reports `DDC: display 1 'LG Display' — no IOAVService found` and falls back to Gamma. The display (LG HDR 4K via HDMI) likely doesn't support DDC/CI brightness via IOAVService on Apple Silicon — brightness control still works via Gamma fallback.
@@ -78,14 +78,14 @@
 - Sync-mode double-apply of brightness delta: math is correct (delta computed once).
 - Sparkle `.app` gating: `if Bundle.main.bundleURL.pathExtension == "app"` — fine for `swift run`.
 - SwiftPM Sparkle artifacts path exists here; not a bug on this machine (watch it on CI/clean checkouts).
-- No IOPMAssertions anywhere; no repeating timers; HID manager uses `kIOHIDOptionsTypeNone` (passive) — the app itself does not hold sleep assertions.
+- No sleep-preventing IOPMAssertions; no repeating timers — the app itself does not hold sleep assertions. (Since 2026-10-18 the HID manager seizes the knob and the app declares user activity on real knob input only; see item 4.)
 - BTStack sleep assertion persisted (briefly) even with the app dead on this machine — on this Mac the kernel/bluetoothd cycles it, and phantom HID tickles are the dominant display-sleep blocker. For a **Bluetooth** PowerMate setup the scan loop is app-caused and the fix belongs in the app; for D-hatu's USB setup the evidence points to hardware/hub, not the app.
 
 ## What a brand-new Mac would hit (theory, extrapolated)
 
 **New MacBook Pro/Air (built-in display, macOS 15/26)**: instant `EXC_BAD_ACCESS` at launch via the DisplayServices signature bug — the app never appears (timfurnish + cortig).
 
-**New Mac Studio/mini (external displays)**: app runs; phantom knob reports keep the display awake (D-hatu); DDC may fail on HDMI monitors without IOAVService (Gamma fallback OK); duplicate MIDI sources; gesture bugs degrade UX; Settings lost on logout; on macOS 15+ the un-notarized DMG may be blocked at first launch by Gatekeeper; missing NSAppleEventsUsageDescription kills the AppleScript volume fallback on fresh systems.
+**New Mac Studio/mini (external displays)**: app runs; phantom knob reports keep the display awake (D-hatu; fixed 2026-10-18, item 4); DDC may fail on HDMI monitors without IOAVService (Gamma fallback OK); duplicate MIDI sources; gesture bugs degrade UX; Settings lost on logout; on macOS 15+ the un-notarized DMG may be blocked at first launch by Gatekeeper; missing NSAppleEventsUsageDescription kills the AppleScript volume fallback on fresh systems.
 
 **Any Mac with a Bluetooth PowerMate**: scan loop never times out; radio stays busy; sleep issues plus the connect dead-end bug.
 
@@ -117,7 +117,7 @@
 7. BLE: scan timeout + backoff + `didDisconnectPeripheral` nils peripheral; fix characteristic-discovery dead end.
 8. Deduplicate the MIDIController (pass AppDelegate's instance into CustomModeEngine).
 9. Make signalHandler async-signal-safe and save settings on `NSApplication.didTerminateNotification` too... actually use `NSApplication.willTerminateNotification` + a SIGTERM-safe flag-and-exit design.
-10. Sleep: (a) add a BLE scan timeout/backoff in `PowerMateBLETransport` — app-caused for Bluetooth setups; (b) for the USB phantom-tickle (persists with app dead), document the hub workaround in the README and consider an FAQ entry pointing affected users to `pmset -g assertions` to self-diagnose.
+10. Sleep: (a) add a BLE scan timeout/backoff in `PowerMateBLETransport` — app-caused for Bluetooth setups; (b) USB phantom-tickle: **fixed 2026-10-18** by seizing the knob (item 4) — it was a stuck media key from the LED echo bytes, not the hub.
 11. Menu-bar discoverability (issue #1 item 4): add Dock-icon fallback toggle like timfurnish suggested.
 
 ## Test artifacts (in .bug-hunt/)

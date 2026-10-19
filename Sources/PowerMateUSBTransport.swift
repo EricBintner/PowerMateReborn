@@ -16,6 +16,7 @@ class PowerMateUSBTransport: PowerMateTransport {
     private var device: IOHIDDevice?
     private var lastButtonState: Bool = false
     private var inputReportBuffer: UnsafeMutablePointer<UInt8>?
+    private var openOptions = IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
 
     // LED state
     private(set) var ledBrightness: UInt8 = 0
@@ -49,12 +50,26 @@ class PowerMateUSBTransport: PowerMateTransport {
         IOHIDManagerRegisterDeviceRemovalCallback(manager, removeCallback, selfPtr)
 
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-        IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        // Seize the knob. Its descriptor declares the LED echo bytes as a
+        // Consumer Control usage, so macOS reads a lit LED as a held media
+        // key and auto-repeats it, keeping the displays from idle-sleeping.
+        // Seizing keeps macOS from interpreting the reports; we still get them.
+        openOptions = IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+        let result = IOHIDManagerOpen(manager, openOptions)
+        if result == kIOReturnSuccess {
+            NSLog("USB: opened PowerMate with exclusive access")
+        } else {
+            NSLog("USB: exclusive access failed (0x%08x), opening shared — the knob may keep displays awake", result)
+            IOHIDManagerClose(manager, openOptions)
+            openOptions = IOOptionBits(kIOHIDOptionsTypeNone)
+            IOHIDManagerOpen(manager, openOptions)
+        }
     }
 
     func stop() {
         if let manager = manager {
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            IOHIDManagerClose(manager, openOptions)
             IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         }
         manager = nil

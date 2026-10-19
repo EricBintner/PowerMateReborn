@@ -1,4 +1,5 @@
 import Foundation
+import IOKit.pwr_mgt
 
 // MARK: - High-Level Delegate (consumed by AppDelegate)
 
@@ -56,6 +57,12 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
 
     // LED state (broadcast to all transports)
     private(set) var ledBrightness: UInt8 = 0
+
+    // Knob use counts as user activity, like a mouse: it wakes the displays
+    // and postpones display sleep. macOS no longer sees the seized USB knob
+    // (and never saw the BLE one), so declare it ourselves, at most once a second.
+    private var userActivityAssertion = IOPMAssertionID(0)
+    private var lastUserActivity = Date.distantPast
 
     override init() {
         super.init()
@@ -115,6 +122,7 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
     }
 
     func transport(_ transport: PowerMateTransport, didRotate delta: Int) {
+        declareUserActivity()
         if buttonDownTime != nil {
             rotatedWhilePressed = true
             // A press-rotate is not a long press: cancel the pending long-press
@@ -128,11 +136,21 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
     func transport(_ transport: PowerMateTransport, buttonStateChanged pressed: Bool) {
         guard pressed != lastButtonState else { return }
         lastButtonState = pressed
+        // Before gesture handling: a double tap ends here by sleeping the
+        // displays, and that must come after this activity, not before it.
+        declareUserActivity()
         if pressed {
             onButtonDown()
         } else {
             onButtonUp()
         }
+    }
+
+    private func declareUserActivity() {
+        let now = Date()
+        guard now.timeIntervalSince(lastUserActivity) >= 1.0 else { return }
+        lastUserActivity = now
+        IOPMAssertionDeclareUserActivity("PowerMate knob" as CFString, kIOPMUserActiveLocal, &userActivityAssertion)
     }
 
     // MARK: - Gesture Detection
