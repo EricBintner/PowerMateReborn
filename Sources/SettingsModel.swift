@@ -1,12 +1,23 @@
 import Foundation
 import CoreAudio
 
+/// One row in the Settings window's knob picker.
+struct PowerMateDeviceChoice: Identifiable, Hashable {
+    let identity: String
+    let displayName: String
+    let connected: Bool
+    var id: String { identity }
+}
+
 /// Observable mirror of the app's settings for the Settings window.
-/// AppDelegate remains the source of truth: every write forwards to an
-/// AppDelegate mutator (which persists + applies side effects) and then
-/// `refresh()` re-reads state so all @Published values stay in sync.
+/// AppDelegate remains the source of truth for machine-wide settings.
+/// Per-knob values are read from `PowerMateDeviceStore` for `selectedIdentity`.
 final class SettingsModel: ObservableObject {
     static let shared = SettingsModel()
+
+    // Which knob the window is editing
+    @Published var knownDevices: [PowerMateDeviceChoice] = []
+    @Published var selectedIdentity: String?
 
     // Modes
     @Published var enabledModes: [KnobMode] = []
@@ -41,33 +52,68 @@ final class SettingsModel: ObservableObject {
 
     private init() {}
 
-    /// Re-read all settings from AppDelegate. Called after every mutation and
-    /// on device/connection delegate callbacks so the window stays live.
+    func selectDevice(_ identity: String) {
+        selectedIdentity = identity
+        AppDelegate.shared?.settingsIdentity = identity
+        refresh()
+    }
+
+    /// Re-read settings. Per-knob fields come from the selected identity;
+    /// display and login fields stay machine-wide.
     func refresh() {
         guard let app = AppDelegate.shared else { return }
-        enabledModes = app.enabledModes
-        currentMode = app.currentMode
-        stepSize = app.stepSize
-        ledMode = app.ledFollowsLevel ? .followLevel : staticLEDMode(fromBrightness: app.powerMateLEDBrightness)
-        longPressThreshold = app.longPressThreshold
-        doubleTapInterval = app.doubleTapInterval
+        let connected = app.connectedPowerMates()
+        var listed = PowerMateDeviceStore.shared.knownDevices()
+        for device in connected where !listed.contains(where: { $0.identity == device.identity }) {
+            listed.append((identity: device.identity, displayName: device.displayName))
+        }
+        knownDevices = listed.map { item in
+            PowerMateDeviceChoice(
+                identity: item.identity,
+                displayName: item.displayName,
+                connected: connected.contains { $0.identity == item.identity }
+            )
+        }
+        if selectedIdentity == nil || !knownDevices.contains(where: { $0.identity == selectedIdentity }) {
+            selectedIdentity = app.settingsIdentity ?? knownDevices.first?.identity
+            if app.settingsIdentity == nil {
+                app.settingsIdentity = selectedIdentity
+            }
+        }
+
+        let record = selectedIdentity.map { PowerMateDeviceStore.shared.record(for: $0) }
+            ?? PowerMateDeviceStore.shared.template
+        enabledModes = record.modes
+        currentMode = record.mode
+        stepSize = record.stepSize
+        ledMode = record.ledFollowsLevel ? .followLevel : staticLEDMode(fromBrightness: record.ledBrightness)
+        longPressThreshold = record.longPressThreshold
+        doubleTapInterval = record.doubleTapInterval
+        volumeSnapValue = record.volumeSnapValue
+        brightnessSnapValue = record.brightnessSnapValue
+        midiCCNumber = UInt8(clamping: record.midiCCNumber)
+        midiChannel = UInt8(clamping: record.midiChannel)
 
         allOutputDevices = app.volumeController.allOutputDevices
-        activeDeviceID = app.volumeController.activeDeviceID
+        activeDeviceID = resolvedOutputID(record, app: app)
         activeDeviceName = app.volumeController.activeDeviceName
         volumeMethod = app.volumeController.volumeMethod
-        volumeSnapValue = app.volumeSnapValue
 
         ddcEnabled = app.brightnessController.ddcController.isEnabled
         syncDisplays = app.brightnessController.syncDisplays
-        brightnessSnapValue = app.brightnessSnapValue
         brightnessMethod = app.brightnessController.method
         activeDisplayName = app.brightnessController.activeDisplayName
 
-        midiCCNumber = app.midiController.ccNumber
-        midiChannel = app.midiController.channel
-
         launchAtLogin = app.launchAtLogin
+    }
+
+    private func resolvedOutputID(_ record: PowerMateDeviceRecord, app: AppDelegate) -> AudioDeviceID {
+        guard let uid = record.outputUID, !uid.isEmpty else {
+            return app.volumeController.activeDeviceID
+        }
+        if uid == PowerMateDeviceStore.appleMusicUID { return 9999 }
+        return app.volumeController.allOutputDevices.first { $0.uid == uid }?.deviceID
+            ?? app.volumeController.activeDeviceID
     }
 
     // MARK: - Writes (forward to AppDelegate mutators)
@@ -126,8 +172,7 @@ final class SettingsModel: ObservableObject {
 
     // MARK: - Helpers
 
-    /// Reconstruct the static LED mode from the raw brightness value kept by
-    /// PowerMateManager (used when ledFollowsLevel is off).
+    /// Reconstruct the static LED mode from the brightness stored on the knob.
     private func staticLEDMode(fromBrightness brightness: UInt8) -> LEDMode {
         switch brightness {
         case 0: return .off

@@ -40,21 +40,62 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(min: 140, ideal: 160, max: 200)
             .listStyle(.sidebar)
         } detail: {
-            Group {
-                switch selectedSection {
-                case .general:  GeneralSettingsSection()
-                case .audio:    AudioSettingsSection()
-                case .knob:     KnobSettingsSection()
-                case .displays: DisplaysSettingsSection()
-                case .midi:     MIDISettingsSection()
-                case .custom:   CustomProfilesSection()
+            VStack(spacing: 0) {
+                knobHeader
+                Divider()
+                Group {
+                    switch selectedSection {
+                    case .general:  GeneralSettingsSection()
+                    case .audio:    AudioSettingsSection()
+                    case .knob:     KnobSettingsSection()
+                    case .displays: DisplaysSettingsSection()
+                    case .midi:     MIDISettingsSection()
+                    case .custom:   CustomProfilesSection()
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Settings")
         .frame(minWidth: 560, minHeight: 460)
         .onAppear { model.refresh() }
+    }
+
+    /// Names the knob whose mode, audio output, sensitivity, LED, and MIDI
+    /// settings the sections below edit. DDC, display sync, and Launch at Login
+    /// stay machine-wide. The brightness tap level is stored on the knob.
+    private var knobHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "dial.min")
+                .foregroundColor(.secondary)
+            if model.knownDevices.count > 1 {
+                Picker("Knob", selection: Binding(
+                    get: { model.selectedIdentity ?? "" },
+                    set: { model.selectDevice($0) }
+                )) {
+                    ForEach(model.knownDevices) { device in
+                        Text(device.connected ? device.displayName : "\(device.displayName) (disconnected)")
+                            .tag(device.identity)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 320)
+            } else if let device = model.knownDevices.first {
+                Text(device.displayName)
+                    .font(.headline)
+                if !device.connected {
+                    Text("disconnected")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Text("No PowerMate connected yet")
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
     }
 }
 
@@ -181,7 +222,7 @@ private struct AudioSettingsSection: View {
         SettingsForm {
             Text("Audio").font(.title2).bold().padding(.bottom, 4)
             SettingRow(icon: "headphones", title: "Output Device",
-                       help: "Route the knob's volume control to a specific device.") {
+                       help: "Output this knob controls. Stored on the knob shown above.") {
                 Picker("", selection: Binding(
                     get: { model.activeDeviceID },
                     set: { model.setActiveDevice($0) }

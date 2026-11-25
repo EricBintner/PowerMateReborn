@@ -64,11 +64,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     // Launch at login
     private(set) var launchAtLogin: Bool = false
 
-    // Snap-to-value state (double-tap toggles)
-    private var volumeBeforeSnap: Float?
-    private var brightnessBeforeSnap: Float?
+    // Snap-to-value state (single tap toggles), per knob.
+    private var volumeBeforeSnap: [String: Float] = [:]
+    private var brightnessBeforeSnap: [String: Float] = [:]
     private(set) var volumeSnapValue: Float = 0.20      // 20%
     private(set) var brightnessSnapValue: Float = 0.67  // 67%
+
+    private let deviceStore = PowerMateDeviceStore.shared
+    /// Knob that last sent an event. The menu bar shows this knob's mode.
+    private var focusedIdentity: String?
+    /// Knob the Settings window is editing. Nil means the migration template.
+    var settingsIdentity: String?
 
     // UI Window Controllers
     private var settingsWindowController: NSWindowController?
@@ -116,7 +122,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     func applicationWillTerminate(_ notification: Notification) {
         brightnessController.restoreGamma()
         customEngine.shutdown()
-        powerMate.setLEDBrightness(0)
+        powerMate.setAllLEDBrightness(0)
         powerMate.stop()
         saveSettings()
     }
@@ -158,7 +164,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.autoenablesItems = false
 
         // --- Connection Status ---
-        let statusTitle = powerMate.isConnected ? "PowerMate Connected" : "PowerMate Disconnected"
+        let focusedName = focusedIdentity.map { deviceStore.record(for: $0).displayName }
+        let statusTitle = powerMate.isConnected ? "\(focusedName ?? "PowerMate") Connected" : "PowerMate Disconnected"
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         let dotColor: NSColor = powerMate.isConnected ? .systemGreen : .systemGray
         if let symbol = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
@@ -322,36 +329,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     // MARK: - Mode Switching
 
-    private func cycleMode() {
-        guard enabledModes.count > 1 else { return }
-        if let idx = enabledModes.firstIndex(of: currentMode) {
-            let nextIdx = (idx + 1) % enabledModes.count
-            currentMode = enabledModes[nextIdx]
-        } else {
-            currentMode = enabledModes[0]
+    private func cycleMode(identity: String) {
+        var next = KnobMode.volume
+        updateIdentity(identity) { rec in
+            let modes = rec.modes
+            guard modes.count > 1 else { next = rec.mode; return }
+            if let idx = modes.firstIndex(of: rec.mode) {
+                next = modes[(idx + 1) % modes.count]
+            } else {
+                next = modes[0]
+            }
+            rec.currentMode = next.rawValue
         }
-        NSLog("Mode switched to: \(currentMode.rawValue)")
+        NSLog("Mode switched to: \(next.rawValue)")
         updateStatusDisplay()
-        updateLEDForLevel()
+        applyLED(identity: identity)
         refreshMenu()
-
-        // Flash LED briefly to indicate mode switch
-        flashLEDForModeSwitch()
+        flashLED(identity: identity)
+        SettingsModel.shared.refresh()
     }
 
-    private func flashLEDForModeSwitch() {
-        let savedBrightness = powerMate.ledBrightness
-        powerMate.setLEDBrightness(255)
+    private func flashLED(identity: String) {
+        let savedBrightness = powerMate.ledBrightness(for: identity)
+        powerMate.setLEDBrightness(255, for: identity)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.powerMate.setLEDBrightness(0)
+            self?.powerMate.setLEDBrightness(0, for: identity)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.powerMate.setLEDBrightness(255)
+                self?.powerMate.setLEDBrightness(255, for: identity)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                     guard let self = self else { return }
-                    if self.ledFollowsLevel {
-                        self.updateLEDForLevel()
+                    let rec = self.deviceStore.record(for: identity)
+                    if rec.ledFollowsLevel {
+                        self.applyLED(identity: identity)
                     } else {
-                        self.powerMate.setLEDBrightness(savedBrightness)
+                        self.powerMate.setLEDBrightness(savedBrightness, for: identity)
                     }
                 }
             }
@@ -363,16 +374,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     @objc private func switchToMode(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
               let mode = KnobMode(rawValue: rawValue) else { return }
-        currentMode = mode
+        if let identity = focusedIdentity {
+            updateIdentity(identity) { $0.currentMode = mode.rawValue }
+            applyLED(identity: identity)
+        } else {
+            deviceStore.updateTemplate { $0.currentMode = mode.rawValue }
+            mirror(deviceStore.template)
+        }
         NSLog("Mode switched to: %@", mode.rawValue)
         updateStatusDisplay()
-        updateLEDForLevel()
         refreshMenu()
+        SettingsModel.shared.refresh()
     }
 
     @objc private func toggleMuteClicked() {
+        if let identity = focusedIdentity {
+            applyKnobOutput(deviceStore.record(for: identity))
+        }
         volumeController.toggleMute()
-        updateLEDForLevel()
+        if let identity = focusedIdentity {
+            applyLED(identity: identity)
+        }
         refreshMenu()
     }
 
@@ -386,110 +408,112 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     // notify SettingsModel so the Settings window re-syncs.
 
     func setModeEnabled(_ mode: KnobMode, _ enabled: Bool) {
-        if enabled {
-            if !enabledModes.contains(mode) {
-                enabledModes.append(mode)
+        var changed = false
+        updateEditing { rec in
+            var modes = rec.modes
+            if enabled {
+                if !modes.contains(mode) {
+                    modes.append(mode)
+                    changed = true
+                }
+            } else if modes.count > 1, modes.contains(mode) {
+                modes.removeAll { $0 == mode }
+                changed = true
+                if rec.mode == mode {
+                    rec.currentMode = modes[0].rawValue
+                }
             }
-        } else if enabledModes.count > 1, enabledModes.contains(mode) {
-            // Don't allow disabling the last enabled mode
-            enabledModes.removeAll { $0 == mode }
-            if currentMode == mode {
-                currentMode = enabledModes[0]
-                updateStatusDisplay()
-                updateLEDForLevel()
-            }
-        } else {
-            return  // last enabled mode: refuse
+            rec.enabledModes = modes.map(\.rawValue)
         }
-        saveSettings()
+        guard changed else { return }
+        if let id = editingIdentity(), id == focusedIdentity {
+            updateStatusDisplay()
+            applyLED(identity: id)
+        }
         refreshMenu()
         SettingsModel.shared.refresh()
     }
 
     func setActiveDevice(_ deviceID: AudioDeviceID) {
-        guard deviceID != volumeController.activeDeviceID else { return }
+        let alreadyPinned = editingRecord().outputUID != nil
+        if deviceID == volumeController.activeDeviceID && alreadyPinned { return }
         volumeController.setActiveDevice(deviceID)
-        // Remember this preference: "when current default is X, use device Y"
-        let defaultID = volumeController.allOutputDevices.first(where: {
-            // Find the actual system default (before our redirect)
-            var addr = AudioObjectPropertyAddress(
-                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var sysDefault = AudioDeviceID(kAudioObjectUnknown)
-            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &sysDefault)
-            return $0.deviceID == sysDefault
-        })?.uid ?? ""
-        if !defaultID.isEmpty {
-            var prefs = UserDefaults.standard.dictionary(forKey: "powermate.deviceRouting") as? [String: String] ?? [:]
-            let targetUID = volumeController.allOutputDevices.first(where: { $0.deviceID == deviceID })?.uid ?? ""
-            if !targetUID.isEmpty {
-                prefs[defaultID] = targetUID
-                UserDefaults.standard.set(prefs, forKey: "powermate.deviceRouting")
-                NSLog("Audio: remembered routing %@ -> %@", defaultID, targetUID)
-            }
+        let uid: String?
+        if deviceID == 9999 {
+            uid = PowerMateDeviceStore.appleMusicUID
+        } else {
+            uid = volumeController.allOutputDevices.first(where: { $0.deviceID == deviceID })?.uid
         }
-        NSLog("Audio device switched to ID %d", deviceID)
-        updateLEDForLevel()
+        guard let uid, !uid.isEmpty else { return }
+        updateEditing { $0.outputUID = uid }
+        NSLog("Audio: knob %@ pinned to %@", editingIdentity() ?? "template", uid)
+        if let id = editingIdentity() {
+            applyLED(identity: id)
+        }
         refreshMenu()
         SettingsModel.shared.refresh()
     }
 
     func setStepSize(_ value: Float) {
-        guard value != stepSize else { return }
-        stepSize = value
-        saveSettings()
+        guard value != editingRecord().stepSize else { return }
+        updateEditing { $0.stepSize = value }
         SettingsModel.shared.refresh()
     }
 
     func setVolumeSnap(_ value: Float) {
-        guard value != volumeSnapValue else { return }
-        volumeSnapValue = value
-        saveSettings()
+        guard value != editingRecord().volumeSnapValue else { return }
+        updateEditing { $0.volumeSnapValue = value }
         SettingsModel.shared.refresh()
     }
 
     func setBrightnessSnap(_ value: Float) {
-        guard value != brightnessSnapValue else { return }
-        brightnessSnapValue = value
-        saveSettings()
+        guard value != editingRecord().brightnessSnapValue else { return }
+        updateEditing { $0.brightnessSnapValue = value }
         SettingsModel.shared.refresh()
     }
 
     func setLEDMode(_ mode: LEDMode) {
+        let follows: Bool
+        let brightness: UInt8
         switch mode {
         case .followLevel:
-            ledFollowsLevel = true
-            updateLEDForLevel()
+            follows = true
+            brightness = editingRecord().ledBrightness
         case .off:
-            ledFollowsLevel = false
-            powerMate.setLEDBrightness(0)
+            follows = false
+            brightness = 0
         case .dim:
-            ledFollowsLevel = false
-            powerMate.setLEDBrightness(64)
+            follows = false
+            brightness = 64
         case .bright:
-            ledFollowsLevel = false
-            powerMate.setLEDBrightness(255)
+            follows = false
+            brightness = 255
         }
-        saveSettings()
+        updateEditing {
+            $0.ledFollowsLevel = follows
+            if !follows { $0.ledBrightness = brightness }
+        }
+        if let id = editingIdentity(), powerMate.connectedDevices().contains(where: { $0.identity == id }) {
+            if follows {
+                applyLED(identity: id)
+            } else {
+                powerMate.setLEDBrightness(brightness, for: id)
+            }
+        }
         SettingsModel.shared.refresh()
     }
 
     func setMIDICC(_ cc: UInt8) {
-        guard cc != midiController.ccNumber else { return }
-        midiController.ccNumber = cc
+        guard Int(cc) != editingRecord().midiCCNumber else { return }
+        updateEditing { $0.midiCCNumber = Int(cc) }
         NSLog("MIDI: CC number changed to %d", cc)
-        saveSettings()
         SettingsModel.shared.refresh()
     }
 
     func setMIDIChannel(_ channel: UInt8) {  // channel is 0-indexed
-        guard channel != midiController.channel else { return }
-        midiController.channel = channel
+        guard Int(channel) != editingRecord().midiChannel else { return }
+        updateEditing { $0.midiChannel = Int(channel) }
         NSLog("MIDI: channel changed to %d (0-based)", channel)
-        saveSettings()
         SettingsModel.shared.refresh()
     }
 
@@ -532,21 +556,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     }
 
     func setLongPressThreshold(_ seconds: Double) {
-        powerMate.longPressThreshold = seconds
-        UserDefaults.standard.set(seconds, forKey: "powermate.longPressThreshold")
+        updateEditing { $0.longPressThreshold = seconds }
         SettingsModel.shared.refresh()
     }
 
     func setDoubleTapInterval(_ seconds: Double) {
-        powerMate.doubleTapInterval = seconds
-        UserDefaults.standard.set(seconds, forKey: "powermate.doubleTapInterval")
+        updateEditing { $0.doubleTapInterval = seconds }
         SettingsModel.shared.refresh()
     }
 
-    // Read accessors for the Settings window (powerMate is private)
-    var longPressThreshold: Double { powerMate.longPressThreshold }
-    var doubleTapInterval: Double { powerMate.doubleTapInterval }
-    var powerMateLEDBrightness: UInt8 { powerMate.ledBrightness }
+    // Read accessors for the Settings window (powerMate is private).
+    // These follow the knob the window is editing, not the menu-bar focus.
+    var longPressThreshold: Double { editingRecord().longPressThreshold }
+    var doubleTapInterval: Double { editingRecord().doubleTapInterval }
+    var powerMateLEDBrightness: UInt8 { editingRecord().ledBrightness }
+
+    func connectedPowerMates() -> [(identity: String, displayName: String)] {
+        powerMate.connectedDevices()
+    }
 
     @objc private func checkForUpdates() {
         updaterController?.checkForUpdates(nil)
@@ -937,13 +964,97 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         return attrStr
     }
 
+    // MARK: - Per-knob records
+
+    /// Copy a knob's record into the fields the menu bar reads.
+    private func mirror(_ record: PowerMateDeviceRecord) {
+        currentMode = record.mode
+        enabledModes = record.modes
+        stepSize = record.stepSize
+        ledFollowsLevel = record.ledFollowsLevel
+        volumeSnapValue = record.volumeSnapValue
+        brightnessSnapValue = record.brightnessSnapValue
+        midiController.ccNumber = UInt8(clamping: record.midiCCNumber)
+        midiController.channel = UInt8(clamping: record.midiChannel)
+    }
+
+    private func focus(_ identity: String) {
+        let changed = focusedIdentity != identity
+        focusedIdentity = identity
+        mirror(deviceStore.record(for: identity))
+        if settingsIdentity == nil {
+            settingsIdentity = identity
+        }
+        if changed {
+            updateStatusDisplay()
+            refreshMenu()
+        }
+    }
+
+    private func editingIdentity() -> String? {
+        settingsIdentity ?? focusedIdentity
+    }
+
+    private func editingRecord() -> PowerMateDeviceRecord {
+        if let id = editingIdentity() {
+            return deviceStore.record(for: id)
+        }
+        return deviceStore.template
+    }
+
+    private func updateEditing(_ body: (inout PowerMateDeviceRecord) -> Void) {
+        if let id = editingIdentity() {
+            deviceStore.update(identity: id, body)
+            if id == focusedIdentity {
+                mirror(deviceStore.record(for: id))
+            }
+        } else {
+            deviceStore.updateTemplate(body)
+            mirror(deviceStore.template)
+        }
+    }
+
+    private func updateIdentity(_ identity: String, _ body: (inout PowerMateDeviceRecord) -> Void) {
+        deviceStore.update(identity: identity, body)
+        if identity == focusedIdentity {
+            mirror(deviceStore.record(for: identity))
+        }
+    }
+
+    /// Point volume control at this knob's output. No-op when the knob still
+    /// follows the shared system-default routing map.
+    private func applyKnobOutput(_ record: PowerMateDeviceRecord) {
+        guard let uid = record.outputUID, !uid.isEmpty else { return }
+        if uid == PowerMateDeviceStore.appleMusicUID {
+            if volumeController.activeDeviceID != 9999 {
+                volumeController.setActiveDevice(9999)
+            }
+            return
+        }
+        if let dev = volumeController.allOutputDevices.first(where: { $0.uid == uid }),
+           dev.deviceID != volumeController.activeDeviceID {
+            volumeController.setActiveDevice(dev.deviceID)
+        }
+    }
+
+    private func applyMIDI(_ record: PowerMateDeviceRecord) {
+        let cc = UInt8(clamping: record.midiCCNumber)
+        let channel = UInt8(clamping: record.midiChannel)
+        if midiController.ccNumber != cc { midiController.ccNumber = cc }
+        if midiController.channel != channel { midiController.channel = channel }
+    }
+
     // MARK: - LED Helpers
 
-    private func updateLEDForLevel() {
-        guard ledFollowsLevel else { return }
+    private func applyLED(identity: String) {
+        let rec = deviceStore.record(for: identity)
+        guard rec.ledFollowsLevel else {
+            powerMate.setLEDBrightness(rec.ledBrightness, for: identity)
+            return
+        }
 
         var level: Float = 0
-        switch currentMode {
+        switch rec.mode {
         case .volume:
             level = volumeController.isMuted() ? 0 : volumeController.getVolume()
         case .brightness:
@@ -953,37 +1064,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .custom:
             if customEngine.activeProfile?.rotateLeft.type == .volume {
                 level = volumeController.isMuted() ? 0 : volumeController.getVolume()
-            }
-            else {
+            } else {
                 level = 0.5
             }
         }
         let ledVal = UInt8(max(0, min(255, level * 255)))
-        powerMate.setLEDBrightness(ledVal)
+        powerMate.setLEDBrightness(ledVal, for: identity)
+    }
+
+    private func applyConnectedLEDs() {
+        for device in powerMate.connectedDevices() {
+            let rec = deviceStore.record(for: device.identity)
+            guard rec.ledFollowsLevel else { continue }
+            applyLED(identity: device.identity)
+        }
     }
 
     // MARK: - PowerMateDelegate
 
-    func powerMateDidConnect() {
-        NSLog("PowerMate connected")
+    func powerMateDidConnect(identity: String, displayName: String) {
+        NSLog("PowerMate connected %@ (%@)", displayName, identity)
+        let rec = deviceStore.ensure(identity: identity, displayName: displayName)
+        focus(identity)
+        applyMIDI(rec)
+        if rec.outputUID != nil {
+            applyKnobOutput(rec)
+        }
+        applyLED(identity: identity)
         updateStatusDisplay()
         refreshMenu()
-        updateLEDForLevel()
         SettingsModel.shared.refresh()
     }
 
-    func powerMateDidDisconnect() {
-        NSLog("PowerMate disconnected")
+    func powerMateDidDisconnect(identity: String) {
+        NSLog("PowerMate disconnected %@", identity)
+        if focusedIdentity == identity, let other = powerMate.connectedDevices().first {
+            focus(other.identity)
+        }
         updateStatusDisplay()
         refreshMenu()
         SettingsModel.shared.refresh()
     }
 
-    func powerMateDidRotate(delta: Int) {
-        let adjustment = Float(delta) * stepSize
+    func powerMateDidRotate(delta: Int, identity: String) {
+        focus(identity)
+        let rec = deviceStore.record(for: identity)
+        applyMIDI(rec)
+        let adjustment = Float(delta) * rec.stepSize
 
-        switch currentMode {
+        switch rec.mode {
         case .volume:
+            applyKnobOutput(rec)
             volumeController.adjustVolume(by: adjustment)
             osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
         case .brightness:
@@ -993,54 +1124,67 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .midi:
             midiController.adjustCC(by: adjustment)
         case .custom:
-            customEngine.handleRotation(delta: delta, stepSize: stepSize)
+            if let profile = customEngine.activeProfile {
+                let action = delta > 0 ? profile.rotateRight : profile.rotateLeft
+                if action.type == .volume { applyKnobOutput(rec) }
+            }
+            customEngine.handleRotation(delta: delta, stepSize: rec.stepSize)
         }
-        updateLEDForLevel()
+        applyLED(identity: identity)
         updateMenuLevels()
     }
 
-    func powerMateButtonPressed() {
-        NSLog("Button: single press [%@]", currentMode.rawValue)
-        switch currentMode {
+    func powerMateButtonPressed(identity: String) {
+        focus(identity)
+        let rec = deviceStore.record(for: identity)
+        applyMIDI(rec)
+        NSLog("Button: single press [%@] %@", rec.currentMode, identity)
+        switch rec.mode {
         case .volume:
-            // Tap = snap to preset (20%), tap again = restore
-            if let saved = volumeBeforeSnap {
+            applyKnobOutput(rec)
+            if let saved = volumeBeforeSnap[identity] {
                 volumeController.setVolume(saved)
-                volumeBeforeSnap = nil
+                volumeBeforeSnap[identity] = nil
                 NSLog("Volume: restored to %.0f%%", saved * 100)
             } else {
-                volumeBeforeSnap = volumeController.getVolume()
-                volumeController.setVolume(volumeSnapValue)
-                NSLog("Volume: snapped to %.0f%%", volumeSnapValue * 100)
+                volumeBeforeSnap[identity] = volumeController.getVolume()
+                volumeController.setVolume(rec.volumeSnapValue)
+                NSLog("Volume: snapped to %.0f%%", rec.volumeSnapValue * 100)
             }
             osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
 
         case .brightness:
-            // Tap = snap to the configured brightness level, tap again = restore
-            if let saved = brightnessBeforeSnap {
+            if let saved = brightnessBeforeSnap[identity] {
                 brightnessController.setBrightness(saved)
-                brightnessBeforeSnap = nil
+                brightnessBeforeSnap[identity] = nil
                 NSLog("Brightness: restored to %.0f%%", saved * 100)
             } else {
-                brightnessBeforeSnap = brightnessController.getCurrentBrightness()
-                brightnessController.setBrightness(brightnessSnapValue)
-                NSLog("Brightness: night mode %.0f%%", brightnessSnapValue * 100)
+                brightnessBeforeSnap[identity] = brightnessController.getCurrentBrightness()
+                brightnessController.setBrightness(rec.brightnessSnapValue)
+                NSLog("Brightness: night mode %.0f%%", rec.brightnessSnapValue * 100)
             }
             osd.showBrightness(level: brightnessController.getCurrentBrightness())
 
         case .midi:
             midiController.toggleNote()
         case .custom:
+            if customEngine.activeProfile?.singleClick.type == .volume {
+                applyKnobOutput(rec)
+            }
             customEngine.handleSingleTap()
         }
-        updateLEDForLevel()
+        applyLED(identity: identity)
         refreshMenu()
     }
 
-    func powerMateButtonDoubleTapped() {
-        NSLog("Button: double tap [%@]", currentMode.rawValue)
-        switch currentMode {
+    func powerMateButtonDoubleTapped(identity: String) {
+        focus(identity)
+        let rec = deviceStore.record(for: identity)
+        applyMIDI(rec)
+        NSLog("Button: double tap [%@] %@", rec.currentMode, identity)
+        switch rec.mode {
         case .volume:
+            applyKnobOutput(rec)
             volumeController.toggleMute()
             osd.showVolume(level: volumeController.getVolume(), muted: volumeController.isMuted())
         case .brightness:
@@ -1048,25 +1192,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         case .midi:
             midiController.toggleNote()
         case .custom:
+            if customEngine.activeProfile?.doubleClick.type == .volume {
+                applyKnobOutput(rec)
+            }
             customEngine.handleDoubleTap()
         }
-        updateLEDForLevel()
+        applyLED(identity: identity)
         refreshMenu()
     }
 
-    func powerMateButtonLongPressed() {
-        // In Custom mode, the engine may override the long press
-        if currentMode == .custom && customEngine.handleLongPress() {
-            NSLog("Button: long press consumed by Custom profile")
-            return
+    func powerMateButtonLongPressed(identity: String) {
+        focus(identity)
+        let rec = deviceStore.record(for: identity)
+        if rec.mode == .custom {
+            if let profile = customEngine.activeProfile,
+               profile.overrideLongPress,
+               profile.longPressAction.type == .volume {
+                applyKnobOutput(rec)
+            }
+            if customEngine.handleLongPress() {
+                NSLog("Button: long press consumed by Custom profile")
+                return
+            }
         }
         NSLog("Button: long press -> cycle mode")
-        cycleMode()
+        cycleMode(identity: identity)
     }
 
-    func powerMateButtonReleased() {
-        // Forward raw release to the custom engine for extended press support
-        if currentMode == .custom {
+    func powerMateButtonReleased(identity: String) {
+        let rec = deviceStore.record(for: identity)
+        if rec.mode == .custom {
             customEngine.handleButtonReleased()
         }
     }
@@ -1075,7 +1230,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     func volumeDidChange(volume: Float, muted: Bool) {
         // External volume change (keyboard, Control Center, another app)
-        updateLEDForLevel()
+        applyConnectedLEDs()
         updateMenuLevels()
         SettingsModel.shared.refresh()
     }
@@ -1083,11 +1238,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     func audioDeviceDidChange(deviceName: String, method: VolumeControlMethod) {
         NSLog("Audio device changed to: \(deviceName) (\(method.rawValue))")
 
-        // Apply saved per-device routing preference
+        if let identity = focusedIdentity {
+            let rec = deviceStore.record(for: identity)
+            if let uid = rec.outputUID, !uid.isEmpty {
+                let wanted: AudioDeviceID? = uid == PowerMateDeviceStore.appleMusicUID
+                    ? 9999
+                    : volumeController.allOutputDevices.first(where: { $0.uid == uid })?.deviceID
+                if let wanted, wanted != volumeController.activeDeviceID {
+                    NSLog("Audio: re-applying knob output %@", uid)
+                    volumeController.setActiveDevice(wanted)
+                }
+                applyConnectedLEDs()
+                refreshMenu()
+                SettingsModel.shared.refresh()
+                return
+            }
+        }
+
+        // Knob has no output of its own: keep the shared default-device map.
         if let prefs = UserDefaults.standard.dictionary(forKey: "powermate.deviceRouting") as? [String: String],
            let currentUID = volumeController.activeDeviceInfo?.uid,
            let preferredUID = prefs[currentUID] {
-            // Find device with that UID
             if let preferred = volumeController.allOutputDevices.first(where: { $0.uid == preferredUID }),
                preferred.deviceID != volumeController.activeDeviceID {
                 NSLog("Audio: applying saved routing -> %@ (%@)", preferred.name, preferredUID)
@@ -1095,7 +1266,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             }
         }
 
-        updateLEDForLevel()
+        applyConnectedLEDs()
         refreshMenu()
         SettingsModel.shared.refresh()
     }
@@ -1104,38 +1275,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     private func loadSettings() {
         let d = UserDefaults.standard
-        if let mode = d.string(forKey: "powermate.currentMode"), let m = KnobMode(rawValue: mode) {
-            currentMode = m
-        }
-        if let modes = d.array(forKey: "powermate.enabledModes") as? [String] {
-            let parsed = modes.compactMap { KnobMode(rawValue: $0) }
-            if !parsed.isEmpty { enabledModes = parsed }
-        }
-        if d.object(forKey: "powermate.stepSize") != nil {
-            stepSize = d.float(forKey: "powermate.stepSize")
-        }
-        if d.object(forKey: "powermate.ledFollowsLevel") != nil {
-            ledFollowsLevel = d.bool(forKey: "powermate.ledFollowsLevel")
-        }
-        if d.object(forKey: "powermate.longPressThreshold") != nil {
-            powerMate.longPressThreshold = d.double(forKey: "powermate.longPressThreshold")
-        }
-        if d.object(forKey: "powermate.doubleTapInterval") != nil {
-            powerMate.doubleTapInterval = d.double(forKey: "powermate.doubleTapInterval")
-        }
-        if d.object(forKey: "powermate.volume.snapValue") != nil {
-            volumeSnapValue = d.float(forKey: "powermate.volume.snapValue")
-        }
-        if d.object(forKey: "powermate.brightness.snapValue") != nil {
-            brightnessSnapValue = d.float(forKey: "powermate.brightness.snapValue")
-        }
-        // MIDI settings
-        if d.object(forKey: "powermate.midi.ccNumber") != nil {
-            midiController.ccNumber = UInt8(d.integer(forKey: "powermate.midi.ccNumber"))
-        }
-        if d.object(forKey: "powermate.midi.channel") != nil {
-            midiController.channel = UInt8(d.integer(forKey: "powermate.midi.channel"))
-        }
+        // Per-knob values live in PowerMateDeviceStore. Mirror the template
+        // until a knob connects and replaces the menu-bar focus.
+        mirror(deviceStore.template)
         // DDC/CI enabled. States were probed during BrightnessController.init
         // with DDC defaulted on; re-probe so a saved "disabled" setting takes
         // effect for methods already cached as DDC.
@@ -1148,22 +1290,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         }
         // Sync launch-at-login with actual SMAppService status
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
-        NSLog("Settings: mode=%@ step=%.0f%% led=%d login=%d ddc=%d midi=CC%d/ch%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin, brightnessController.ddcController.isEnabled, midiController.ccNumber, midiController.channel + 1)
+        NSLog("Settings: template mode=%@ step=%.0f%% led=%d login=%d ddc=%d midi=CC%d/ch%d knobs=%d", currentMode.rawValue, stepSize * 100, ledFollowsLevel, launchAtLogin, brightnessController.ddcController.isEnabled, midiController.ccNumber, midiController.channel + 1, deviceStore.records.count)
     }
 
     /// Save settings. Also called from the SIGTERM/SIGINT dispatch handler in
     /// main.swift, so it must be callable outside this class.
     func saveSettings() {
-        let d = UserDefaults.standard
-        d.set(currentMode.rawValue, forKey: "powermate.currentMode")
-        d.set(enabledModes.map { $0.rawValue }, forKey: "powermate.enabledModes")
-        d.set(stepSize, forKey: "powermate.stepSize")
-        d.set(ledFollowsLevel, forKey: "powermate.ledFollowsLevel")
-        d.set(powerMate.longPressThreshold, forKey: "powermate.longPressThreshold")
-        d.set(powerMate.doubleTapInterval, forKey: "powermate.doubleTapInterval")
-        d.set(volumeSnapValue, forKey: "powermate.volume.snapValue")
-        d.set(brightnessSnapValue, forKey: "powermate.brightness.snapValue")
-        d.set(Int(midiController.ccNumber), forKey: "powermate.midi.ccNumber")
-        d.set(Int(midiController.channel), forKey: "powermate.midi.channel")
+        deviceStore.save()
     }
 }
