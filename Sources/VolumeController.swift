@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import ApplicationServices
 import CoreAudio
 import AudioToolbox
 import ScriptingBridge
@@ -92,6 +93,9 @@ class VolumeController {
     lazy private var appleMusicApplication: SBApplication = {
         return SBApplication(bundleIdentifier: "com.apple.Music")!
     }()
+
+    /// Cached Automation → Music result. nil = not asked yet this session.
+    private var appleMusicAutomationAllowed: Bool?
 
     // Software Volume state — internal gain tracker for devices without native control
     // Like an iPhone controlling volume before sending to a powered receiver
@@ -434,6 +438,13 @@ class VolumeController {
             )
             activeDeviceInfo = dev
             volumeMethod = .appleMusic
+            // SBApplication fails silently without Automation consent and never
+            // registers the app under System Settings → Privacy → Automation.
+            // Force the TCC prompt so Music control works when launched as .app
+            // (CLI runs inherit Terminal/osascript's existing grant instead).
+            DispatchQueue.main.async {
+                _ = self.requestAppleMusicAutomationPermission()
+            }
         }
 
         simulatedMute = false
@@ -963,7 +974,47 @@ class VolumeController {
 
     // MARK: - Apple Music volume (via SBApplication)
 
+    /// Prompt for Automation → Music if needed. Returns true when allowed.
+    /// Without this, SBApplication fails silently and the app never appears under
+    /// System Settings → Privacy & Security → Automation.
+    @discardableResult
+    func requestAppleMusicAutomationPermission() -> Bool {
+        if let cached = appleMusicAutomationAllowed { return cached }
+
+        // Consent dialog is more reliable when the target is already running.
+        if appleMusicApplication.isRunning != true {
+            appleMusicApplication.activate()
+        }
+        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.Music")
+        let status = AEDeterminePermissionToAutomateTarget(
+            target.aeDesc,
+            typeWildCard,
+            typeWildCard,
+            true
+        )
+        switch status {
+        case noErr:
+            NSLog("Audio: Music Automation allowed")
+            appleMusicAutomationAllowed = true
+            return true
+        case OSStatus(errAEEventNotPermitted):
+            NSLog("Audio: Music Automation denied — enable System Settings → Privacy & Security → Automation → PowerMateReborn → Music")
+            appleMusicAutomationAllowed = false
+            return false
+        case OSStatus(procNotFound):
+            // Don't cache: retry once Music is launchable.
+            NSLog("Audio: Music not running; could not request Automation permission")
+            return false
+        default:
+            NSLog("Audio: Music Automation status=%d", status)
+            let allowed = status == noErr
+            appleMusicAutomationAllowed = allowed
+            return allowed
+        }
+    }
+
     private func getAppleMusicVolume() -> Float {
+        guard appleMusicAutomationAllowed != false else { return 0.5 }
         guard let soundVolume = appleMusicApplication.value(forKey: "soundVolume") else {
             return 0.5
         }
@@ -971,6 +1022,7 @@ class VolumeController {
     }
 
     private func setAppleMusicVolume(_ volume: Float) {
+        guard appleMusicAutomationAllowed != false else { return }
         appleMusicApplication.setValue(round(volume * 100.0), forKey: "soundVolume")
     }
 

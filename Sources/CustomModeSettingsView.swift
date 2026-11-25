@@ -155,8 +155,10 @@ struct ProfileDetailView: View {
                 Text("Rotation")
                     .font(.headline)
                     .padding(.bottom, 8)
-                ActionConfigRow(title: "Rotate Left", icon: "arrow.counterclockwise", config: binding(\.rotateLeft))
-                ActionConfigRow(title: "Rotate Right", icon: "arrow.clockwise", config: binding(\.rotateRight))
+                ActionConfigRow(title: "Rotate Left", icon: "arrow.counterclockwise", config: binding(\.rotateLeft),
+                                onRequiresInputPermission: promptInputPermission)
+                ActionConfigRow(title: "Rotate Right", icon: "arrow.clockwise", config: binding(\.rotateRight),
+                                onRequiresInputPermission: promptInputPermission)
 
                 Divider().padding(.vertical, 12)
 
@@ -164,8 +166,10 @@ struct ProfileDetailView: View {
                 Text("Button Press")
                     .font(.headline)
                     .padding(.bottom, 8)
-                ActionConfigRow(title: "Single Tap", icon: "hand.tap", config: binding(\.singleClick))
-                ActionConfigRow(title: "Double Tap", icon: "hand.tap.fill", config: binding(\.doubleClick))
+                ActionConfigRow(title: "Single Tap", icon: "hand.tap", config: binding(\.singleClick),
+                                onRequiresInputPermission: promptInputPermission)
+                ActionConfigRow(title: "Double Tap", icon: "hand.tap.fill", config: binding(\.doubleClick),
+                                onRequiresInputPermission: promptInputPermission)
 
                 Divider().padding(.vertical, 12)
 
@@ -207,7 +211,8 @@ struct ProfileDetailView: View {
                         ActionConfigRow(
                             title: profile.holdBehavior == .longPress ? "Long Press" : "Extended Press",
                             icon: "hand.draw",
-                            config: binding(\.longPressAction)
+                            config: binding(\.longPressAction),
+                            onRequiresInputPermission: promptInputPermission
                         )
                     }
                     .padding()
@@ -218,6 +223,10 @@ struct ProfileDetailView: View {
             .padding(24)
         }
     }
+
+    private func promptInputPermission() {
+        _ = engine.requestInputPermissionIfNeeded(prompt: true)
+    }
 }
 
 // MARK: - Action Config Row
@@ -226,6 +235,9 @@ struct ActionConfigRow: View {
     let title: String
     let icon: String
     @Binding var config: CodableActionConfig
+    /// When set, selecting scroll/keyboard triggers the Accessibility TCC prompt
+    /// the first time this session (same pattern as Music Automation).
+    var onRequiresInputPermission: (() -> Void)? = nil
 
     @State private var isRecordingShortcut = false
     @State private var shortcutDisplayString = ""
@@ -251,7 +263,11 @@ struct ActionConfigRow: View {
                 .labelsHidden()
                 .frame(width: 200)
                 .accessibilityLabel("\(title) Action Type")
-                .onChange(of: config.type) { _ in }
+                .onChange(of: config.type) { newType in
+                    if CustomModeEngine.actionRequiresInputPermission(newType) {
+                        onRequiresInputPermission?()
+                    }
+                }
 
                 Group {
                     switch config.type {

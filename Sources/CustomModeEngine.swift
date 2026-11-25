@@ -143,6 +143,10 @@ class CustomModeEngine: ObservableObject {
     /// settings UI can tell the user instead of leaving actions dead.
     @Published var inputPermissionGranted: Bool = AXIsProcessTrusted()
 
+    /// Avoid re-prompting Accessibility every time the user picks scroll/keyboard
+    /// in the same session after they've already been shown the system dialog.
+    private var didPromptInputPermissionThisSession = false
+
     init() {
         loadProfiles()
         if profiles.isEmpty {
@@ -151,6 +155,33 @@ class CustomModeEngine: ObservableObject {
         }
         startAppObserver()
         resolveActiveProfile()
+    }
+
+    /// True for action types that post CGEvents and need Accessibility.
+    static func actionRequiresInputPermission(_ type: CodableActionType) -> Bool {
+        type == .scroll || type == .keyboard
+    }
+
+    /// Ask macOS for Accessibility if missing. Call when the user first assigns
+    /// a scroll/keyboard Custom action so the app appears under System Settings
+    /// → Privacy & Security → Accessibility (the banner alone never triggers TCC).
+    @discardableResult
+    func requestInputPermissionIfNeeded(prompt: Bool = true) -> Bool {
+        let trusted = AXIsProcessTrusted()
+        if trusted != inputPermissionGranted {
+            inputPermissionGranted = trusted
+        }
+        guard !trusted, prompt, !didPromptInputPermissionThisSession else {
+            return inputPermissionGranted
+        }
+        didPromptInputPermissionThisSession = true
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let nowTrusted = AXIsProcessTrustedWithOptions(options)
+        inputPermissionGranted = nowTrusted
+        if !nowTrusted {
+            NSLog("Custom: Accessibility permission not granted — scroll/keyboard actions will do nothing until enabled in System Settings > Privacy & Security > Accessibility.")
+        }
+        return nowTrusted
     }
 
     // MARK: - Profile Management
@@ -263,11 +294,8 @@ class CustomModeEngine: ObservableObject {
     /// Update inputPermissionGranted if the trust state may have changed, and
     /// log once when events will be dropped so the user can self-diagnose.
     private func refreshInputPermissionIfNeeded() {
-        let trusted = AXIsProcessTrusted()
-        if trusted != inputPermissionGranted {
-            inputPermissionGranted = trusted
-        }
-        if !trusted && !hasLoggedPermissionWarning {
+        _ = requestInputPermissionIfNeeded(prompt: false)
+        if !inputPermissionGranted && !hasLoggedPermissionWarning {
             hasLoggedPermissionWarning = true
             NSLog("Custom: Accessibility permission missing — scroll/keyboard actions will do nothing. Grant it in System Settings > Privacy & Security > Accessibility.")
         }

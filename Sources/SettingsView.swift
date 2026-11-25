@@ -525,6 +525,16 @@ struct CustomProfilesSection: View {
             if selectedProfileID == nil {
                 selectedProfileID = engine.profiles.first?.id
             }
+            // Default Global profile ships with scroll actions; prompt once so
+            // the app shows up under Accessibility instead of only a banner.
+            let needsInput = engine.profiles.contains { profile in
+                [profile.rotateLeft, profile.rotateRight, profile.singleClick,
+                 profile.doubleClick, profile.longPressAction]
+                    .contains { CustomModeEngine.actionRequiresInputPermission($0.type) }
+            }
+            if needsInput {
+                _ = engine.requestInputPermissionIfNeeded(prompt: true)
+            }
         }
     }
 }
