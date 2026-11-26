@@ -85,11 +85,9 @@ Enabling this override disables the ability to cycle between modes from the knob
 
 ## Installation
 
-1. Download the latest `.dmg` from [GitHub Releases](https://github.com/EricBintner/PowerMateReborn/releases).
+1. Download the latest `.dmg` from [GitHub Releases](https://github.com/EricBintner/PowerMateReborn/releases). The app is Developer ID signed and notarized by Apple.
 2. Open the `.dmg` and drag **PowerMateReborn** to your Applications folder.
 3. Launch the app. Grant **Accessibility** permissions if prompted (System Settings > Privacy & Security > Accessibility).
-
-*Since the app is not yet notarized by Apple, you may need to right-click and select "Open" the first time.*
 
 ## Build from Source
 
