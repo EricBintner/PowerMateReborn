@@ -234,3 +234,62 @@ struct PowerMateBLEKnownKnob {
         defaults.removeObject(forKey: Self.defaultsKey)
     }
 }
+
+/// What the Bluetooth side is doing, for issue reports. A report from someone
+/// whose knob will not connect is otherwise silent about Bluetooth.
+struct PowerMateBLEStatus: Equatable {
+    enum Radio: Equatable {
+        case on
+        case off
+        /// The user has not let this app use Bluetooth.
+        case notAllowed
+        case unsupported
+        /// Not started yet, starting up, or resetting.
+        case notReady
+
+        init(_ state: CBManagerState?) {
+            switch state {
+            case .poweredOn?: self = .on
+            case .poweredOff?: self = .off
+            case .unauthorized?: self = .notAllowed
+            case .unsupported?: self = .unsupported
+            default: self = .notReady
+            }
+        }
+    }
+
+    var radio: Radio
+    var isConnected: Bool
+    /// A knob has become usable on this Mac before (see `PowerMateBLEKnownKnob`).
+    var remembersKnob: Bool
+    /// Connections in a row that failed, never became usable, or dropped early.
+    var unstableConnections: Int
+    var firmware: String?
+    var batteryPercent: Int?
+
+    /// One line for the report, after "Bluetooth knob: ".
+    var summary: String {
+        if isConnected {
+            var details: [String] = []
+            if let firmware = firmware { details.append("firmware \(firmware)") }
+            if let battery = batteryPercent { details.append("battery \(battery)%") }
+            return details.isEmpty ? "connected" : "connected (\(details.joined(separator: ", ")))"
+        }
+
+        var facts: [String] = []
+        switch radio {
+        case .on: facts.append("Bluetooth is on")
+        case .off: facts.append("Bluetooth is off")
+        case .notAllowed: facts.append("PowerMateReborn is not allowed to use Bluetooth")
+        case .unsupported: facts.append("this Mac has no Bluetooth LE")
+        case .notReady: facts.append("Bluetooth is not ready")
+        }
+        facts.append(remembersKnob ? "a knob has worked on this Mac before" : "no knob has worked on this Mac yet")
+        if unstableConnections == 1 {
+            facts.append("the last connection failed or dropped early")
+        } else if unstableConnections > 1 {
+            facts.append("the last \(unstableConnections) connections failed or dropped early")
+        }
+        return "not connected (\(facts.joined(separator: "; ")))"
+    }
+}

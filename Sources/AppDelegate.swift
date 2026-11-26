@@ -83,6 +83,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Capture stderr (all NSLog output) to a file so issue reports can include logs.
         // Keep this first: transports log connection events right after this.
         AppLogCapture.start()
+        // The log file runs on across launches and updates. Mark where each
+        // run starts and which version wrote it, so a report's log can be read.
+        NSLog("Launch: PowerMateReborn %@ (%@), macOS %@",
+              Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev",
+              Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-",
+              ProcessInfo.processInfo.operatingSystemVersionString)
 
         // Only initialize Sparkle when running inside a proper .app bundle AND
         // the update feed is fully configured. Starting the updater with a
@@ -702,8 +708,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Report Issue"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 560, height: 620))
-        window.minSize = NSSize(width: 480, height: 480)
+        // Tall enough for the whole form: at 620 the intro and the buttons
+        // were cut off.
+        window.setContentSize(NSSize(width: 560, height: 720))
+        window.contentMinSize = NSSize(width: 520, height: 700)
         window.isReleasedWhenClosed = false
         window.center()
 
@@ -720,9 +728,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let osVersion = ProcessInfo.processInfo.operatingSystemVersion
         let osString = "macOS \(osVersion.majorVersion).\(osVersion.minorVersion)\(osVersion.patchVersion > 0 ? ".\(osVersion.patchVersion)" : "")"
 
-        let connected = powerMate.isConnected
-        let deviceLine = connected ? "Connected" : "Disconnected"
-
         let vol = volumeController.getVolume()
         let br = brightnessController.getCurrentBrightness()
         let ddcEnabled = brightnessController.ddcController.isEnabled
@@ -730,16 +735,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         var lines = [
             "App: PowerMateReborn \(version) (\(build))",
             "OS: \(osString)",
-            "Device: PowerMate \(deviceLine)",
+        ]
+        lines += IssueReporter.knobLines(usbConnected: powerMate.isUSBConnected,
+                                         bluetooth: powerMate.bluetoothStatus)
+        lines += [
             "Mode: \(currentMode.rawValue)",
             "Volume: \(Int(vol * 100))% via \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))",
             "Brightness: \(Int(br * 100))% via \(brightnessController.method.rawValue), DDC/CI \(ddcEnabled ? "enabled" : "disabled")",
             "Display: \(brightnessController.activeDisplayName)",
         ]
-        if connected, let transport = powerMate.activeTransportName() {
-            lines.append("Transport: \(transport)")
-        }
         return lines.joined(separator: "\n")
+    }
+
+    /// The report form's starting answer to "which PowerMate do you have":
+    /// whatever is connected right now, or nothing.
+    func connectedKnobForReport() -> IssueReporter.Knob? {
+        return IssueReporter.Knob(usbConnected: powerMate.isUSBConnected,
+                                  bluetoothConnected: powerMate.bluetoothStatus?.isConnected ?? false)
     }
 
     @objc private func showSettings() {

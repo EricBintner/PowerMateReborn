@@ -101,9 +101,15 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
         return transports.contains(where: { $0.isConnected })
     }
 
-    /// Name of the transport currently connected to the device, if any (for issue reports).
-    func activeTransportName() -> String? {
-        return transports.first(where: { $0.isConnected }).map { type(of: $0) == PowerMateBLETransport.self ? "Bluetooth" : "USB" }
+    // For issue reports: each kind of knob is reported on its own, so a
+    // report says what Bluetooth is doing even when nothing is connected.
+
+    var isUSBConnected: Bool {
+        return transports.contains(where: { $0 is PowerMateUSBTransport && $0.isConnected })
+    }
+
+    var bluetoothStatus: PowerMateBLEStatus? {
+        return transports.lazy.compactMap({ $0 as? PowerMateBLETransport }).first?.status
     }
 
     // MARK: - LED Control

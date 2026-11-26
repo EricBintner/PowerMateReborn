@@ -57,10 +57,12 @@ class PowerMateUSBTransport: PowerMateTransport {
         // Seizing keeps macOS from interpreting the reports; we still get them.
         openOptions = IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
         let result = IOHIDManagerOpen(manager, openOptions)
+        // This opens the manager, not a knob: it succeeds with nothing
+        // plugged in. A knob is reported when it is matched (onDeviceMatched).
         if result == kIOReturnSuccess {
-            NSLog("USB: opened PowerMate with exclusive access")
+            NSLog("USB: watching for a PowerMate (exclusive access)")
         } else {
-            NSLog("USB: exclusive access failed (0x%08x), opening shared — the knob may keep displays awake", result)
+            NSLog("USB: exclusive access failed (0x%08x), watching with shared access — the knob may keep displays awake", result)
             IOHIDManagerClose(manager, openOptions)
             openOptions = IOOptionBits(kIOHIDOptionsTypeNone)
             IOHIDManagerOpen(manager, openOptions)
@@ -143,7 +145,7 @@ class PowerMateUSBTransport: PowerMateTransport {
         // Run startup LED flash test (scheduled on main, non-blocking)
         runStartupLEDTest()
 
-        NSLog("PowerMate device matched")
+        NSLog("USB: PowerMate connected")
 
         DispatchQueue.main.async {
             self.transportDelegate?.transportDidConnect(self)
@@ -159,6 +161,7 @@ class PowerMateUSBTransport: PowerMateTransport {
         }
         device = nil
         lastButtonState = false
+        NSLog("USB: PowerMate disconnected")
 
         DispatchQueue.main.async {
             self.transportDelegate?.transportDidDisconnect(self)

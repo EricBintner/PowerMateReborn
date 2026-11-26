@@ -30,6 +30,7 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
     private var lastLEDByte: UInt8?
 
     private var lastBatteryLevel: UInt8?
+    private var firmwareRevision: String?
 
     /// Knob turns still to be logged on this connection: a sample, so an
     /// issue report shows the decoding without the log filling with turns.
@@ -58,6 +59,16 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
 
     var isConnected: Bool {
         return isOperational && peripheral?.state == .connected
+    }
+
+    /// What the Bluetooth side is doing right now, for issue reports.
+    var status: PowerMateBLEStatus {
+        return PowerMateBLEStatus(radio: PowerMateBLEStatus.Radio(centralManager?.state),
+                                  isConnected: isConnected,
+                                  remembersKnob: knownKnob.identifier != nil,
+                                  unstableConnections: unstableConnections,
+                                  firmware: firmwareRevision,
+                                  batteryPercent: lastBatteryLevel.map { Int($0) })
     }
 
     override init() {
@@ -228,6 +239,7 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
         ledCharacteristic = nil
         lastLEDByte = nil
         lastBatteryLevel = nil
+        firmwareRevision = nil
         gestures.reset()
         peripheral = nil
 
@@ -472,7 +484,8 @@ extension PowerMateBLETransport: CBPeripheralDelegate {
             NSLog("BLE: Battery %d%%", level)
 
         case PowerMateBLEUUID.firmwareRevision:
-            NSLog("BLE: Firmware revision: %@", String(data: data, encoding: .utf8) ?? "?")
+            firmwareRevision = String(data: data, encoding: .utf8)
+            NSLog("BLE: Firmware revision: %@", firmwareRevision ?? "?")
 
         case PowerMateBLEUUID.modelNumber:
             NSLog("BLE: Model number: %@", String(data: data, encoding: .utf8) ?? "?")
