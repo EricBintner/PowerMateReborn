@@ -81,7 +81,14 @@ Enabling this override disables the ability to cycle between modes from the knob
   - **Griffin PowerMate Bluetooth** (Beta support via CoreBluetooth)
 - **OS:** macOS 13+ (Optimized for Apple Silicon, macOS Sequoia)
 
-> **Note on Bluetooth Support:** Bluetooth connectivity is currently in Beta. You can connect both a USB and a Bluetooth PowerMate simultaneously. The Bluetooth LED works, but the exact button and rotation mapping for the Bluetooth model is still undergoing real-hardware validation.
+> **Note on Bluetooth Support:** Bluetooth is in Beta. The maintainer only has the USB model, so Bluetooth support is built from the knob's documented protocol and confirmed by users rather than tested in-house. You can connect a USB and a Bluetooth PowerMate at the same time. The Bluetooth knob times button presses itself, so two things differ from USB:
+>
+> - **Long press** fires after about one second. The Long Press Threshold setting applies to the USB knob only.
+> - **Double-tap** is not available yet. The Bluetooth button can report a single press twice, so a second press within one second is ignored until that timing has been measured on real knobs.
+>
+> Once a Bluetooth knob has connected, the app remembers it and reconnects when the knob wakes up, without needing a scan to catch it. The very first connection still relies on a scan, so wake the knob (turn or press it) shortly after launching the app, and make sure no other app is connected to it.
+>
+> If you have a Bluetooth PowerMate, reports from **Report Issue...** are very welcome: the log records the raw bytes the knob sends.
 
 ## Installation
 
@@ -95,6 +102,12 @@ Enabling this override disables the ability to cycle between modes from the knob
 cd PowerMateDriver
 swift build
 swift run
+```
+
+Run the tests (Bluetooth protocol and gesture handling; no hardware needed):
+
+```bash
+swift test
 ```
 
 Requires Xcode 15+ and macOS 13+ SDK.

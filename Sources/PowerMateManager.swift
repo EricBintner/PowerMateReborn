@@ -15,13 +15,23 @@ protocol PowerMateDelegate: AnyObject {
 
 // MARK: - Transport Protocol
 
-/// Raw events from a hardware transport (USB or BLE).
-/// Transports should NOT perform gesture detection — just report raw hardware state.
+/// Events from a hardware transport (USB or BLE).
+/// Transports report what the hardware says and leave gesture detection to
+/// PowerMateManager. The USB knob reports raw button state. The Bluetooth
+/// knob times presses in its own firmware and only reports finished clicks
+/// and holds, so it uses the click and long-press calls instead.
 protocol PowerMateTransportDelegate: AnyObject {
     func transportDidConnect(_ transport: PowerMateTransport)
     func transportDidDisconnect(_ transport: PowerMateTransport)
     func transport(_ transport: PowerMateTransport, didRotate delta: Int)
+    /// Raw button state (USB).
     func transport(_ transport: PowerMateTransport, buttonStateChanged pressed: Bool)
+    /// A finished short press, timed by the device (Bluetooth).
+    func transportDidClick(_ transport: PowerMateTransport)
+    /// The device reports the button has been held long enough (Bluetooth).
+    func transportDidLongPress(_ transport: PowerMateTransport)
+    /// The button was let go after `transportDidLongPress` (Bluetooth).
+    func transportDidReleaseLongPress(_ transport: PowerMateTransport)
 }
 
 /// A hardware transport that can communicate with a PowerMate device.
@@ -146,6 +156,20 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
         }
     }
 
+    func transportDidClick(_ transport: PowerMateTransport) {
+        declareUserActivity()
+        registerTap()
+    }
+
+    func transportDidLongPress(_ transport: PowerMateTransport) {
+        declareUserActivity()
+        fireLongPress()
+    }
+
+    func transportDidReleaseLongPress(_ transport: PowerMateTransport) {
+        delegate?.powerMateButtonReleased()
+    }
+
     private func declareUserActivity() {
         let now = Date()
         guard now.timeIntervalSince(lastUserActivity) >= 1.0 else { return }
@@ -195,6 +219,14 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
             return
         }
 
+        registerTap()
+
+        buttonDownTime = nil
+        longPressFired = false
+    }
+
+    /// Counts one finished tap; a second one inside `doubleTapInterval` makes a double tap.
+    private func registerTap() {
         tapCount += 1
 
         if tapCount >= 2 {
@@ -210,19 +242,20 @@ class PowerMateManager: NSObject, PowerMateTransportDelegate {
             singleTapTimer = Timer(timeInterval: doubleTapInterval, target: self, selector: #selector(handleSingleTapTimeout(_:)), userInfo: nil, repeats: false)
             RunLoop.main.add(singleTapTimer!, forMode: .common)
         }
+    }
 
-        buttonDownTime = nil
-        longPressFired = false
+    private func fireLongPress() {
+        tapCount = 0
+        singleTapTimer?.invalidate()
+        singleTapTimer = nil
+        delegate?.powerMateButtonLongPressed()
     }
 
     // Timer actions (selector-based so they run in .common run-loop mode)
 
     @objc private func handleLongPress(_ timer: Timer) {
         longPressFired = true
-        tapCount = 0
-        singleTapTimer?.invalidate()
-        singleTapTimer = nil
-        delegate?.powerMateButtonLongPressed()
+        fireLongPress()
     }
 
     @objc private func handleSingleTapTimeout(_ timer: Timer) {

@@ -292,7 +292,7 @@ private struct KnobSettingsSection: View {
             .padding(.bottom, 8)
             if showAdvanced {
                 SettingRow(icon: "hand.draw", title: "Long Press Threshold",
-                           help: "How long the button must be held to count as a long press.") {
+                           help: "How long the button must be held to count as a long press. USB knob only: the Bluetooth knob uses its own timing, about one second.") {
                     Stepper(value: Binding(
                         get: { model.longPressThreshold },
                         set: { model.setLongPressThreshold(min(2.0, max(0.1, $0))) }
@@ -303,7 +303,7 @@ private struct KnobSettingsSection: View {
                     }
                 }
                 SettingRow(icon: "hand.tap", title: "Double Tap Interval",
-                           help: "Maximum gap between taps for a double tap.") {
+                           help: "Maximum gap between taps for a double tap. Double tap is not available on the Bluetooth knob yet.") {
                     Stepper(value: Binding(
                         get: { model.doubleTapInterval },
                         set: { model.setDoubleTapInterval(min(0.8, max(0.05, $0))) }
