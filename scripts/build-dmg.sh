@@ -33,6 +33,18 @@ echo "==> Building $APP_NAME ($BUILD_CONFIG)..."
 
 cd "$PROJECT_DIR"
 
+# Guard against the v1.2.2 About / Quick Start crash: Bundle.module needs
+# SwiftPM's resource bundle, which this script does not package. It works on
+# the build machine (the accessor falls back to .build here) and stops the app
+# with "could not load resource bundle" everywhere else, so testing the
+# packaged app on this Mac cannot catch it. Images are copied into
+# Contents/Resources below; load them with AppResources instead.
+if grep -rn "Bundle\.module" "$PROJECT_DIR/Sources" --include='*.swift' | grep -v "Sources/AppResources.swift"; then
+    echo "ERROR: Sources use Bundle.module (lines above), which crashes in the packaged app."
+    echo "       Use AppResources.path(forResource:ofType:) instead."
+    exit 1
+fi
+
 if [[ "$BUILD_CONFIG" == "release" ]]; then
     swift build -c release
     BINARY_PATH=".build/release/PowerMateDriver"

@@ -575,7 +575,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         alert.alertStyle = .informational
         
         // Set custom icon (logo) at the top
-        if let logoPath = Bundle.module.path(forResource: "logo", ofType: "svg") ?? Bundle.main.path(forResource: "logo", ofType: "svg"),
+        if let logoPath = AppResources.path(forResource: "logo", ofType: "svg"),
            let logoImg = NSImage(contentsOfFile: logoPath) {
             alert.icon = logoImg
         }
@@ -767,7 +767,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         alert.alertStyle = .informational
         
         // Set custom icon (logo) at the top
-        if let logoPath = Bundle.module.path(forResource: "logo", ofType: "svg") ?? Bundle.main.path(forResource: "logo", ofType: "svg"),
+        if let logoPath = AppResources.path(forResource: "logo", ofType: "svg"),
            let logoImg = NSImage(contentsOfFile: logoPath) {
             alert.icon = logoImg
         }
@@ -778,7 +778,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.spacing = 8
         
         // 1. PowerMate device image
-        if let iconPath = Bundle.module.path(forResource: "griffin-technology-powermate-mac-os9", ofType: "png") ?? Bundle.main.path(forResource: "griffin-technology-powermate-mac-os9", ofType: "png"),
+        if let iconPath = AppResources.path(forResource: "griffin-technology-powermate-mac-os9", ofType: "png"),
            let img = NSImage(contentsOfFile: iconPath) {
             let imageView = NSImageView(image: img)
             imageView.imageScaling = .scaleProportionallyUpOrDown

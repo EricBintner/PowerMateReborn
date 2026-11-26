@@ -29,6 +29,11 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("Sparkle", .when(platforms: [.macOS]))
             ]
+        ),
+        .testTarget(
+            name: "PowerMateDriverTests",
+            dependencies: ["PowerMateDriver"],
+            path: "Tests/PowerMateDriverTests"
         )
     ]
 )
