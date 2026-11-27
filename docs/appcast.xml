@@ -24,6 +24,30 @@
     -->
 
     <item>
+      <title>Version 1.2.3 (Bluetooth and Crash Fixes)</title>
+      <description><![CDATA[
+        <h2>What's new</h2>
+        <ul>
+          <li><b>Bluetooth is untested on real hardware.</b> The maintainer only owns the USB PowerMate. The Bluetooth changes are built from a user's capture and the knob's published protocol.</li>
+          <li><b>Fixed: the Bluetooth PowerMate connected and disconnected in a loop.</b> 1.2.0 to 1.2.2 dropped a working knob right after connecting.</li>
+          <li><b>Fixed: Bluetooth turns and presses were misread.</b> A knob that has connected is also remembered and reconnects when it wakes.</li>
+          <li><b>Fixed: the About and Quick Start windows quit the app when opened.</b></li>
+          <li><b>Report Issue is more useful.</b> It asks which PowerMate you have, needs a title and a description, and removes your name and home folder from the report.</li>
+        </ul>
+      ]]></description>
+      <pubDate>Fri, 27 Nov 2026 06:23:23 -0500</pubDate>
+      <sparkle:version>202611270615</sparkle:version>
+      <sparkle:shortVersionString>1.2.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/EricBintner/PowerMateReborn/releases/download/v1.2.3/PowerMateReborn_v1.2.3.dmg"
+        length="2270551"
+        type="application/octet-stream"
+        sparkle:edSignature="TJvYKmGzuLeYzLOsf+K1d6pRzamif+DzqkC9zU+P5ACVObgFjZsSp9TXyAAjgkKxJqAVP+TmB35lWojl+pnlBQ=="
+      />
+    </item>
+
+    <item>
       <title>Version 1.2.2 (Mute and Issue Report Fixes)</title>
       <description><![CDATA[
         <h2>What's new</h2>

@@ -1,5 +1,7 @@
 # Release v1.2.3 — Bluetooth and Crash Fixes
 
+**Status: PUBLISHED 2026-11-27** — build 202611270615, notarized, tag `v1.2.3`, appcast live. Bluetooth changes still unconfirmed on hardware; results are tracked in issue #4.
+
 Follows the [v1.2.0 runbook](RELEASE_v1.2.0.md) (build → verify → tag → GitHub release → appcast). Notarization uses the `PowerMate-Notarization2` keychain profile (`scripts/build-dmg.sh` default).
 
 Fixes issue #4 (duplicates #2, #3, #5): the Bluetooth knob connected and disconnected in a loop on v1.2.0 to v1.2.2. Also fixes the crash in issue #5's log (About and Quick Start, see [RELEASE_PITFALLS.md](RELEASE_PITFALLS.md) Part 2 item 10) and the gaps in Report Issue that those reports showed.
