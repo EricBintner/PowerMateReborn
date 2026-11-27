@@ -247,7 +247,10 @@ if [[ "${NOTARIZE:-1}" != "0" ]]; then
     # Ask notarytool itself: current versions keep profiles where
     # `security find-generic-password` can't see them, so that check
     # reported real profiles as missing. This also validates the password.
-    if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+    # Its answer is kept and printed on failure. The v1.2.3 build was refused
+    # with "403. A required agreement is missing or has expired", which is an
+    # Apple account matter, while this script blamed the profile and password.
+    if NOTARY_CHECK=$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1); then
         echo "==> Submitting DMG for notarization (2-5 min)..."
         if xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait; then
             echo "==> Stapling notarization ticket..."
@@ -259,9 +262,19 @@ if [[ "${NOTARIZE:-1}" != "0" ]]; then
             exit 1
         fi
     else
-        echo "    WARNING: notary profile '$NOTARY_PROFILE' is missing or its password was rejected."
-        echo "             Run scripts/CODE_SIGNING.md Step 2 (store-credentials), set NOTARY_PROFILE=<name>,"
-        echo "             or re-run with NOTARIZE=0."
+        echo "ERROR: Apple's notary service refused the request — DMG not notarized; do not publish."
+        echo "       Apple's answer (profile '$NOTARY_PROFILE'):"
+        echo "$NOTARY_CHECK" | head -5 | sed 's/^/         /'
+        if grep -qi "agreement" <<<"$NOTARY_CHECK"; then
+            echo "       This is the Apple developer account, not this Mac or the saved password."
+            echo "       Sign in at https://developer.apple.com/account as the account holder and"
+            echo "       accept the pending agreement, or renew the membership if it has lapsed."
+            echo "       Rebuilding will be refused again until Apple has registered that."
+        else
+            echo "       If the profile is missing or its password was rejected, run"
+            echo "       scripts/CODE_SIGNING.md Step 2 (store-credentials) or set NOTARY_PROFILE=<name>."
+        fi
+        echo "       To build without notarizing (testing only, never to publish), re-run with NOTARIZE=0."
         exit 1
     fi
 fi
