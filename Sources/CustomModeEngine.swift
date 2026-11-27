@@ -13,18 +13,20 @@ enum CodableActionType: String, Codable, CaseIterable, Identifiable {
     case midiCC
     case midiNote
     case osc
+    case volume
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .unassigned: return "Unassigned"
-        case .scroll:     return "Scroll"
-        case .keyboard:   return "Keyboard Shortcut"
-        case .media:      return "Media Control"
-        case .midiCC:     return "MIDI CC (Continuous)"
-        case .midiNote:   return "MIDI Note"
-        case .osc:        return "OSC Message"
+        case .unassigned: return tr("Unassigned")
+        case .scroll:     return tr("Scroll")
+        case .keyboard:   return tr("Keyboard Shortcut")
+        case .media:      return tr("Media Control")
+        case .midiCC:     return tr("MIDI CC (Continuous)")
+        case .midiNote:   return tr("MIDI Note")
+        case .osc:        return tr("OSC Message")
+        case .volume:     return tr("Volume")
         }
     }
 }
@@ -36,20 +38,37 @@ enum CodableHoldBehavior: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .longPress:     return "Long Press (Trigger after delay)"
-        case .extendedPress: return "Extended Press (Hold to sustain)"
+        case .longPress:     return tr("Long Press (Trigger after delay)")
+        case .extendedPress: return tr("Extended Press (Hold to sustain)")
         }
     }
 }
 
 enum ScrollDirection: String, Codable, CaseIterable {
     case up, down, left, right
+
+    var localizedName: String {
+        switch self {
+        case .up:    return tr("Up")
+        case .down:  return tr("Down")
+        case .left:  return tr("Left")
+        case .right: return tr("Right")
+        }
+    }
 }
 
 enum MediaCommand: String, Codable, CaseIterable {
     case playPause = "Play/Pause"
     case nextTrack = "Next"
     case prevTrack = "Prev"
+
+    var localizedName: String {
+        switch self {
+        case .playPause: return tr("Play/Pause")
+        case .nextTrack: return tr("Next")
+        case .prevTrack: return tr("Prev")
+        }
+    }
 }
 
 struct KeyboardShortcut: Codable, Equatable {
@@ -125,6 +144,9 @@ class CustomModeEngine: ObservableObject {
         return AppDelegate.shared?.midiController
     }
 
+    var volumeController: VolumeController? = nil
+    private let osd = OSDOverlay()
+
     // Extended press state
     private(set) var extendedPressActive: Bool = false
     private var extendedPressAction: CodableActionConfig?
@@ -138,6 +160,10 @@ class CustomModeEngine: ObservableObject {
     /// settings UI can tell the user instead of leaving actions dead.
     @Published var inputPermissionGranted: Bool = AXIsProcessTrusted()
 
+    /// Avoid re-prompting Accessibility every time the user picks scroll/keyboard
+    /// in the same session after they've already been shown the system dialog.
+    private var didPromptInputPermissionThisSession = false
+
     init() {
         loadProfiles()
         if profiles.isEmpty {
@@ -146,6 +172,33 @@ class CustomModeEngine: ObservableObject {
         }
         startAppObserver()
         resolveActiveProfile()
+    }
+
+    /// True for action types that post CGEvents and need Accessibility.
+    static func actionRequiresInputPermission(_ type: CodableActionType) -> Bool {
+        type == .scroll || type == .keyboard
+    }
+
+    /// Ask macOS for Accessibility if missing. Call when the user first assigns
+    /// a scroll/keyboard Custom action so the app appears under System Settings
+    /// → Privacy & Security → Accessibility (the banner alone never triggers TCC).
+    @discardableResult
+    func requestInputPermissionIfNeeded(prompt: Bool = true) -> Bool {
+        let trusted = AXIsProcessTrusted()
+        if trusted != inputPermissionGranted {
+            inputPermissionGranted = trusted
+        }
+        guard !trusted, prompt, !didPromptInputPermissionThisSession else {
+            return inputPermissionGranted
+        }
+        didPromptInputPermissionThisSession = true
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let nowTrusted = AXIsProcessTrustedWithOptions(options)
+        inputPermissionGranted = nowTrusted
+        if !nowTrusted {
+            NSLog("Custom: Accessibility permission not granted — scroll/keyboard actions will do nothing until enabled in System Settings > Privacy & Security > Accessibility.")
+        }
+        return nowTrusted
     }
 
     // MARK: - Profile Management
@@ -258,11 +311,8 @@ class CustomModeEngine: ObservableObject {
     /// Update inputPermissionGranted if the trust state may have changed, and
     /// log once when events will be dropped so the user can self-diagnose.
     private func refreshInputPermissionIfNeeded() {
-        let trusted = AXIsProcessTrusted()
-        if trusted != inputPermissionGranted {
-            inputPermissionGranted = trusted
-        }
-        if !trusted && !hasLoggedPermissionWarning {
+        _ = requestInputPermissionIfNeeded(prompt: false)
+        if !inputPermissionGranted && !hasLoggedPermissionWarning {
             hasLoggedPermissionWarning = true
             NSLog("Custom: Accessibility permission missing — scroll/keyboard actions will do nothing. Grant it in System Settings > Privacy & Security > Accessibility.")
         }
@@ -347,6 +397,18 @@ class CustomModeEngine: ObservableObject {
                 // For button press: send trigger
                 oscController.sendTrigger(action.osc.path, host: action.osc.host, port: action.osc.port)
             }
+
+        case .volume:
+            if let vol = volumeController {
+                if rotationDelta != 0 {
+                    let adjustment = Float(rotationDelta) * stepSize
+                    vol.adjustVolume(by: adjustment)
+                    osd.showVolume(level: vol.getVolume(), muted: vol.isMuted())
+                } else {
+                    vol.toggleMute()
+                    osd.showVolume(level: vol.getVolume(), muted: vol.isMuted())
+                }
+            }
         }
     }
 
@@ -391,20 +453,20 @@ class CustomModeEngine: ObservableObject {
     // MARK: - Media Keys
 
     private func executeMediaCommand(_ command: MediaCommand) {
-        let keyCode: Int64
+        let keyCode: UInt32
         switch command {
-        case .playPause: keyCode = Int64(NX_KEYTYPE_PLAY)
-        case .nextTrack: keyCode = Int64(NX_KEYTYPE_NEXT)
-        case .prevTrack: keyCode = Int64(NX_KEYTYPE_PREVIOUS)
+        case .playPause: keyCode = UInt32(NX_KEYTYPE_PLAY)
+        case .nextTrack: keyCode = UInt32(NX_KEYTYPE_NEXT)
+        case .prevTrack: keyCode = UInt32(NX_KEYTYPE_PREVIOUS)
         }
 
-        func postMediaKey(_ keyCode: Int64, down: Bool) {
-            let flags: Int64 = down ? 0xa00 : 0xb00
-            let data1 = (keyCode << 16) | (flags << 16)
+        func postMediaKey(_ key: UInt32, down: Bool) {
+            let flags = NSEvent.ModifierFlags(rawValue: (down ? 0xa00 : 0xb00))
+            let data1 = Int((key<<16) | (down ? 0xa00 : 0xb00))
             let event = NSEvent.otherEvent(
                 with: .systemDefined,
                 location: .zero,
-                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(flags)),
+                modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: 0,
                 context: nil,
@@ -412,7 +474,7 @@ class CustomModeEngine: ObservableObject {
                 data1: Int(data1),
                 data2: -1
             )
-            event?.cgEvent?.post(tap: .cgSessionEventTap)
+            event?.cgEvent?.post(tap: .cghidEventTap)
         }
 
         postMediaKey(keyCode, down: true)

@@ -13,13 +13,17 @@ enum AppResources {
     /// The resource bundle SwiftPM builds beside the executable.
     static let swiftPMBundleName = "PowerMateDriver_PowerMateDriver.bundle"
 
+    /// SwiftPM's resource bundle beside the executable, when there is one.
+    static func swiftPMBundle(mainBundle: Bundle = .main) -> Bundle? {
+        return Bundle(url: mainBundle.bundleURL.appendingPathComponent(swiftPMBundleName))
+    }
+
     static func path(forResource name: String, ofType ext: String, mainBundle: Bundle = .main) -> String? {
         // The packaged app: images are in Contents/Resources.
         if let path = mainBundle.path(forResource: name, ofType: ext) {
             return path
         }
         // `swift run`: SwiftPM puts them in its bundle next to the executable.
-        let swiftPMBundle = Bundle(url: mainBundle.bundleURL.appendingPathComponent(swiftPMBundleName))
-        return swiftPMBundle?.path(forResource: name, ofType: ext)
+        return swiftPMBundle(mainBundle: mainBundle)?.path(forResource: name, ofType: ext)
     }
 }

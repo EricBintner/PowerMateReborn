@@ -17,7 +17,7 @@ struct AddAppSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Add Application Profile")
+            Text(tr("Add Application Profile"))
                 .font(.headline)
 
             List(runningApps, id: \.bundleID) { app in
@@ -42,10 +42,10 @@ struct AddAppSheet: View {
             .frame(height: 250)
 
             HStack {
-                Button("Cancel") { isPresented = false }
+                Button(tr("Cancel")) { isPresented = false }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Add") {
+                Button(tr("Add")) {
                     guard !selectedBundleID.isEmpty,
                           let app = runningApps.first(where: { $0.bundleID == selectedBundleID }) else { return }
                     engine.addProfile(name: app.name, bundleIdentifier: app.bundleID, iconName: "app")
@@ -139,7 +139,7 @@ struct ProfileDetailView: View {
                         Text(profile.name)
                             .font(.title2).bold()
                         if profile.isGlobal {
-                            Text("Applies when no app-specific profile matches.")
+                            Text(tr("Applies when no app-specific profile matches."))
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         } else if let bundle = profile.bundleIdentifier {
@@ -152,29 +152,33 @@ struct ProfileDetailView: View {
                 .padding(.bottom, 20)
 
                 // Rotation
-                Text("Rotation")
+                Text(tr("Rotation"))
                     .font(.headline)
                     .padding(.bottom, 8)
-                ActionConfigRow(title: "Rotate Left", icon: "arrow.counterclockwise", config: binding(\.rotateLeft))
-                ActionConfigRow(title: "Rotate Right", icon: "arrow.clockwise", config: binding(\.rotateRight))
+                ActionConfigRow(title: tr("Rotate Left"), icon: "arrow.counterclockwise", config: binding(\.rotateLeft),
+                                onRequiresInputPermission: promptInputPermission)
+                ActionConfigRow(title: tr("Rotate Right"), icon: "arrow.clockwise", config: binding(\.rotateRight),
+                                onRequiresInputPermission: promptInputPermission)
 
                 Divider().padding(.vertical, 12)
 
                 // Button Press
-                Text("Button Press")
+                Text(tr("Button Press"))
                     .font(.headline)
                     .padding(.bottom, 8)
-                ActionConfigRow(title: "Single Tap", icon: "hand.tap", config: binding(\.singleClick))
-                ActionConfigRow(title: "Double Tap", icon: "hand.tap.fill", config: binding(\.doubleClick))
+                ActionConfigRow(title: tr("Single Tap"), icon: "hand.tap", config: binding(\.singleClick),
+                                onRequiresInputPermission: promptInputPermission)
+                ActionConfigRow(title: tr("Double Tap"), icon: "hand.tap.fill", config: binding(\.doubleClick),
+                                onRequiresInputPermission: promptInputPermission)
 
                 Divider().padding(.vertical, 12)
 
                 // Long Press Override
-                Text("Long Press (Advanced)")
+                Text(tr("Long Press (Advanced)"))
                     .font(.headline)
                     .padding(.bottom, 8)
 
-                Toggle("Override Global Mode Cycling", isOn: binding(\.overrideLongPress))
+                Toggle(tr("Override Global Mode Cycling"), isOn: binding(\.overrideLongPress))
                     .tint(.red)
                     .padding(.bottom, 8)
 
@@ -183,13 +187,13 @@ struct ProfileDetailView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.red)
-                            Text("Assigning a custom action here disables the ability to cycle modes (Volume / Brightness / MIDI / Custom) from the knob while this profile is active.")
+                            Text(tr("Assigning a custom action here disables the ability to cycle modes (Volume / Brightness / MIDI / Custom) from the knob while this profile is active."))
                                 .font(.caption)
                                 .foregroundColor(.red)
                         }
                         .padding(.bottom, 8)
 
-                        Picker("Behavior:", selection: binding(\.holdBehavior)) {
+                        Picker(tr("Behavior:"), selection: binding(\.holdBehavior)) {
                             ForEach(CodableHoldBehavior.allCases) { behavior in
                                 Text(behavior.displayName).tag(behavior)
                             }
@@ -198,16 +202,17 @@ struct ProfileDetailView: View {
                         .padding(.bottom, 8)
 
                         if profile.holdBehavior == .extendedPress {
-                            Text("The action fires when the button has been held long enough, and stays active until the button is released -- like holding a key on an organ.")
+                            Text(tr("The action fires when the button has been held long enough, and stays active until the button is released -- like holding a key on an organ."))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .padding(.bottom, 4)
                         }
 
                         ActionConfigRow(
-                            title: profile.holdBehavior == .longPress ? "Long Press" : "Extended Press",
+                            title: profile.holdBehavior == .longPress ? tr("Long Press") : tr("Extended Press"),
                             icon: "hand.draw",
-                            config: binding(\.longPressAction)
+                            config: binding(\.longPressAction),
+                            onRequiresInputPermission: promptInputPermission
                         )
                     }
                     .padding()
@@ -218,6 +223,10 @@ struct ProfileDetailView: View {
             .padding(24)
         }
     }
+
+    private func promptInputPermission() {
+        _ = engine.requestInputPermissionIfNeeded(prompt: true)
+    }
 }
 
 // MARK: - Action Config Row
@@ -226,6 +235,9 @@ struct ActionConfigRow: View {
     let title: String
     let icon: String
     @Binding var config: CodableActionConfig
+    /// When set, selecting scroll/keyboard triggers the Accessibility TCC prompt
+    /// the first time this session (same pattern as Music Automation).
+    var onRequiresInputPermission: (() -> Void)? = nil
 
     @State private var isRecordingShortcut = false
     @State private var shortcutDisplayString = ""
@@ -250,8 +262,12 @@ struct ActionConfigRow: View {
                 }
                 .labelsHidden()
                 .frame(width: 200)
-                .accessibilityLabel("\(title) Action Type")
-                .onChange(of: config.type) { _ in }
+                .accessibilityLabel(tr("%@ Action Type", title))
+                .onChange(of: config.type) { newType in
+                    if CustomModeEngine.actionRequiresInputPermission(newType) {
+                        onRequiresInputPermission?()
+                    }
+                }
 
                 Group {
                     switch config.type {
@@ -259,22 +275,22 @@ struct ActionConfigRow: View {
                         EmptyView()
 
                     case .scroll:
-                        Picker("Direction", selection: $config.scrollDirection) {
+                        Picker(tr("Direction"), selection: $config.scrollDirection) {
                             ForEach(ScrollDirection.allCases, id: \.self) { dir in
-                                Text(dir.rawValue.capitalized).tag(dir)
+                                Text(dir.localizedName).tag(dir)
                             }
                         }
                         .frame(width: 150)
 
                     case .keyboard:
                         HStack {
-                            Text(config.keyboardShortcut.displayString.isEmpty ? "None" : config.keyboardShortcut.displayString)
+                            Text(config.keyboardShortcut.displayString.isEmpty ? tr("None") : config.keyboardShortcut.displayString)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(Color.secondary.opacity(0.15))
                                 .cornerRadius(4)
-                                .accessibilityLabel("Current shortcut: \(config.keyboardShortcut.displayString.isEmpty ? "None" : config.keyboardShortcut.displayString)")
-                            Button(isRecordingShortcut ? "Press keys..." : "Record Shortcut") {
+                                .accessibilityLabel(tr("Current shortcut: %@", config.keyboardShortcut.displayString.isEmpty ? tr("None") : config.keyboardShortcut.displayString))
+                            Button(isRecordingShortcut ? tr("Press keys...") : tr("Record Shortcut")) {
                                 isRecordingShortcut = true
                                 startShortcutRecording()
                             }
@@ -284,26 +300,26 @@ struct ActionConfigRow: View {
                                 // recording — remove the abandoned monitor
                                 stopShortcutRecording()
                             }
-                            .accessibilityHint("Click to start recording a new keyboard shortcut")
+                            .accessibilityHint(tr("Click to start recording a new keyboard shortcut"))
                         }
 
                     case .media:
-                        Picker("Command", selection: $config.mediaCommand) {
+                        Picker(tr("Command"), selection: $config.mediaCommand) {
                             ForEach(MediaCommand.allCases, id: \.self) { cmd in
-                                Text(cmd.rawValue).tag(cmd)
+                                Text(cmd.localizedName).tag(cmd)
                             }
                         }
                         .frame(width: 150)
-                        .accessibilityLabel("Media Command")
+                        .accessibilityLabel(tr("Media Command"))
 
                     case .midiCC:
                         HStack {
-                            IntField("CC#", value: Binding(
+                            IntField(tr("CC#"), value: Binding(
                                 get: { Int(config.midiCC.ccNumber) },
                                 set: { config.midiCC.ccNumber = UInt8(max(0, min(127, $0))) }
                             ), range: 0...127)
                             .frame(width: 80)
-                            IntField("Ch", value: Binding(
+                            IntField(tr("Ch"), value: Binding(
                                 get: { Int(config.midiCC.channel) + 1 },
                                 set: { config.midiCC.channel = UInt8(max(0, min(15, $0 - 1))) }
                             ), range: 1...16)
@@ -312,17 +328,17 @@ struct ActionConfigRow: View {
 
                     case .midiNote:
                         HStack {
-                            IntField("Note", value: Binding(
+                            IntField(tr("Note"), value: Binding(
                                 get: { Int(config.midiNote.noteNumber) },
                                 set: { config.midiNote.noteNumber = UInt8(max(0, min(127, $0))) }
                             ), range: 0...127)
                             .frame(width: 80)
-                            IntField("Vel", value: Binding(
+                            IntField(tr("Vel"), value: Binding(
                                 get: { Int(config.midiNote.velocity) },
                                 set: { config.midiNote.velocity = UInt8(max(0, min(127, $0))) }
                             ), range: 0...127)
                             .frame(width: 80)
-                            IntField("Ch", value: Binding(
+                            IntField(tr("Ch"), value: Binding(
                                 get: { Int(config.midiNote.channel) + 1 },
                                 set: { config.midiNote.channel = UInt8(max(0, min(15, $0 - 1))) }
                             ), range: 1...16)
@@ -331,11 +347,11 @@ struct ActionConfigRow: View {
 
                     case .osc:
                         VStack(alignment: .leading, spacing: 4) {
-                            TextField("OSC Path", text: $config.osc.path)
+                            TextField(tr("OSC Path"), text: $config.osc.path)
                             HStack {
-                                TextField("Host", text: $config.osc.host)
+                                TextField(tr("Host"), text: $config.osc.host)
                                     .frame(width: 120)
-                                IntField("Port", value: Binding(
+                                IntField(tr("Port"), value: Binding(
                                     get: { Int(config.osc.port) },
                                     set: { config.osc.port = UInt16(max(1, min(65535, $0))) }
                                 ), range: 1...65535)
@@ -343,6 +359,8 @@ struct ActionConfigRow: View {
                             }
                         }
                         .frame(width: 260)
+                    case .volume:
+                        EmptyView()
                     }
                 }
                 .padding(.leading, 4)

@@ -136,8 +136,9 @@ enum IssueReporter {
             }
         }
 
+        /// What the form's picker shows. `rawValue` is what the report says.
         var shortName: String {
-            return self == .both ? "Both" : rawValue
+            return self == .both ? tr("Both") : rawValue
         }
     }
 
@@ -176,13 +177,13 @@ enum IssueReporter {
     static func hint(forMissing missing: [Field]) -> String? {
         guard !missing.isEmpty else { return nil }
         var steps: [String] = []
-        if missing.contains(.title) { steps.append("a title") }
-        if missing.contains(.description) { steps.append("a description") }
-        if !steps.isEmpty { steps[0] = "add " + steps[0] }
-        if missing.contains(.knob) { steps.append("say which PowerMate you have") }
+        if missing.contains(.title) { steps.append(tr("a title")) }
+        if missing.contains(.description) { steps.append(tr("a description")) }
+        if !steps.isEmpty { steps[0] = tr("add %@", steps[0]) }
+        if missing.contains(.knob) { steps.append(tr("say which PowerMate you have")) }
         let last = steps.removeLast()
-        let list = steps.isEmpty ? last : steps.joined(separator: ", ") + " and " + last
-        return "To open an issue, \(list)."
+        let list = steps.isEmpty ? last : tr("%@ and %@", steps.joined(separator: ", "), last)
+        return tr("To open an issue, %@.", list)
     }
 
     /// The state of each kind of knob, for the system information.
@@ -311,20 +312,20 @@ struct IssueReportView: View {
     // to fit this form in AppDelegate.showIssueReporter().
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Describe the problem. This opens a GitHub issue with your system information filled in, and copies the recent logs to your clipboard for you to paste into it.")
+            Text(tr("Describe the problem. This opens a GitHub issue with your system information filled in, and copies the recent logs to your clipboard for you to paste into it."))
                 .font(.callout)
                 .foregroundColor(.secondary)
                 .layoutPriority(1)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Title").font(.headline)
-                TextField("Short summary", text: $issueTitle)
+                Text(tr("Title")).font(.headline)
+                TextField(tr("Short summary"), text: $issueTitle)
                     .textFieldStyle(.roundedBorder)
             }
 
             HStack(spacing: 10) {
-                Text("Which PowerMate do you have?").font(.headline)
-                Picker("Which PowerMate do you have?", selection: $knob) {
+                Text(tr("Which PowerMate do you have?")).font(.headline)
+                Picker(tr("Which PowerMate do you have?"), selection: $knob) {
                     ForEach(IssueReporter.Knob.allCases, id: \.self) { knob in
                         Text(knob.shortName).tag(Optional(knob))
                     }
@@ -335,13 +336,13 @@ struct IssueReportView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Description").font(.headline)
+                Text(tr("Description")).font(.headline)
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $issueDescription)
                         .font(.system(size: 12))
                         .frame(minHeight: 90)
                     if issueDescription.isEmpty {
-                        Text("What did you do, what happened, and what did you expect?")
+                        Text(tr("What did you do, what happened, and what did you expect?"))
                             .foregroundColor(Color(nsColor: .placeholderTextColor))
                             .padding(.top, 8)
                             .padding(.leading, 5)
@@ -351,22 +352,22 @@ struct IssueReportView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("System Information").font(.headline)
-                infoBox(systemInfo.isEmpty ? "(collecting…)" : systemInfo, height: 112)
+                Text(tr("System Information")).font(.headline)
+                infoBox(systemInfo.isEmpty ? tr("(collecting…)") : systemInfo, height: 112)
             }
 
             Toggle(isOn: $includeLogs) {
-                Text("Include recent app logs")
+                Text(tr("Include recent app logs"))
             }
 
             if includeLogs {
                 VStack(alignment: .leading, spacing: 4) {
-                    infoBox(logTail.isEmpty ? "(no logs captured)" : logTail, height: 120)
+                    infoBox(logTail.isEmpty ? tr("(no logs captured)") : logTail, height: 120)
                     // Two short lines: one long caption is cut off, not wrapped,
                     // when the window is at its smallest.
                     Group {
-                        Text("Your account name, your own name and your home folder have been taken out.")
-                        Text("Names of your audio devices, displays and apps can remain.")
+                        Text(tr("Your account name, your own name and your home folder have been taken out."))
+                        Text(tr("Names of your audio devices, displays and apps can remain."))
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -382,8 +383,8 @@ struct IssueReportView: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button("Copy Report") { copyReport() }
-                Button("Open GitHub Issue") { openGitHubIssue() }
+                Button(tr("Copy Report")) { copyReport() }
+                Button(tr("Open GitHub Issue")) { openGitHubIssue() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(!draft.missing.isEmpty)
@@ -425,13 +426,13 @@ struct IssueReportView: View {
         // Only what the link could not carry goes to the clipboard; if the
         // link carries everything, the clipboard is left alone.
         if let clipboard = issue.clipboard {
-            copy(clipboard, feedback: "Copied. Paste it into the GitHub issue (⌘V).")
+            copy(clipboard, feedback: tr("Copied. Paste it into the GitHub issue (⌘V)."))
         }
         NSWorkspace.shared.open(issue.url)
     }
 
     private func copyReport() {
-        copy(IssueReporter.fullReport(draft), feedback: "Report copied to clipboard")
+        copy(IssueReporter.fullReport(draft), feedback: tr("Report copied to clipboard"))
     }
 
     private func copy(_ text: String, feedback: String) {

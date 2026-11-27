@@ -23,6 +23,11 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
     private var unstableConnections = 0
     private var gestures = PowerMateBLEGestureFilter()
 
+    /// Stable for this peripheral on this Mac. Kept after disconnect so the
+    /// disconnect callback can still name the device.
+    private(set) var identity: String = "ble:unknown"
+    private(set) var displayName: String = "PowerMate Bluetooth"
+
     // LED state
     private(set) var ledBrightness: UInt8 = 0
     /// Last LED byte written on this connection. The app sets the LED on
@@ -59,6 +64,25 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
 
     var isConnected: Bool {
         return isOperational && peripheral?.state == .connected
+    }
+
+    var connectedDevices: [(identity: String, displayName: String)] {
+        guard isConnected else { return [] }
+        return [(identity, displayName)]
+    }
+
+    func owns(_ identity: String) -> Bool {
+        isConnected && self.identity == identity
+    }
+
+    func ledBrightness(for identity: String) -> UInt8 {
+        guard self.identity == identity else { return 0 }
+        return ledBrightness
+    }
+
+    func setLEDBrightness(_ brightness: UInt8, identity: String) {
+        guard self.identity == identity else { return }
+        setLEDBrightness(brightness)
     }
 
     /// What the Bluetooth side is doing right now, for issue reports.
@@ -103,6 +127,13 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
     func setLEDBrightness(_ brightness: UInt8) {
         ledBrightness = brightness
         writeLED()
+    }
+
+    private func notePeripheral(_ peripheral: CBPeripheral) {
+        identity = "ble:\(peripheral.identifier.uuidString)"
+        if let name = peripheral.name, !name.isEmpty {
+            displayName = name
+        }
     }
 
     // MARK: - Private
@@ -219,8 +250,13 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
             knownKnob.remember(identifier)
             NSLog("BLE: Remembering this knob so it can reconnect without a scan")
         }
+        if let peripheral = peripheral {
+            notePeripheral(peripheral)
+        }
+        let identity = self.identity
+        let displayName = self.displayName
         DispatchQueue.main.async {
-            self.transportDelegate?.transportDidConnect(self)
+            self.transportDelegate?.transportDidConnect(self, identity: identity, displayName: displayName)
         }
     }
 
@@ -244,13 +280,14 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
         peripheral = nil
 
         if wasOperational {
+            let identity = self.identity
             DispatchQueue.main.async {
                 // A hold in progress can never be released now. End it so a
                 // sustained Custom-mode action doesn't stay on.
                 if longPressWasActive {
-                    self.transportDelegate?.transportDidReleaseLongPress(self)
+                    self.transportDelegate?.transportDidReleaseLongPress(self, identity: identity)
                 }
-                self.transportDelegate?.transportDidDisconnect(self)
+                self.transportDelegate?.transportDidDisconnect(self, identity: identity)
             }
         }
         return usableFor
@@ -275,18 +312,19 @@ class PowerMateBLETransport: NSObject, PowerMateTransport {
         logKnobEvent(data, event: event, ignored: actions.isEmpty)
 
         guard !actions.isEmpty else { return }
+        let identity = self.identity
         DispatchQueue.main.async {
             guard let delegate = self.transportDelegate else { return }
             for action in actions {
                 switch action {
                 case .rotate(let delta):
-                    delegate.transport(self, didRotate: delta)
+                    delegate.transport(self, identity: identity, didRotate: delta)
                 case .click:
-                    delegate.transportDidClick(self)
+                    delegate.transportDidClick(self, identity: identity)
                 case .longPress:
-                    delegate.transportDidLongPress(self)
+                    delegate.transportDidLongPress(self, identity: identity)
                 case .longPressReleased:
-                    delegate.transportDidReleaseLongPress(self)
+                    delegate.transportDidReleaseLongPress(self, identity: identity)
                 }
             }
         }
@@ -353,6 +391,7 @@ extension PowerMateBLETransport: CBCentralManagerDelegate {
             central.cancelPeripheralConnection(pending)
         }
         self.peripheral = peripheral
+        notePeripheral(peripheral)
         peripheral.delegate = self
         central.connect(peripheral, options: nil)
     }

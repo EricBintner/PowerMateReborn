@@ -3,6 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "PowerMateDriver",
+    // The English text in the code is the base language; fi.lproj translates it.
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],
@@ -27,6 +29,7 @@ let package = Package(
                 .linkedFramework("CoreBluetooth"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("CoreGraphics"),
+                .linkedFramework("ScriptingBridge"),
                 .linkedFramework("Sparkle", .when(platforms: [.macOS]))
             ]
         ),
