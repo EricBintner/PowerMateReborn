@@ -17,6 +17,16 @@ enum BrightnessMethod: String {
     var isSoftware: Bool {
         return self == .gamma || self == .overlay
     }
+
+    /// What the user reads; `rawValue` stays the logged and reported name.
+    /// Names of the underlying technologies stay as they are.
+    var localizedName: String {
+        switch self {
+        case .overlay: return tr("Overlay")
+        case .none:    return tr("None")
+        default:       return rawValue
+        }
+    }
 }
 
 class BrightnessController {

@@ -13,6 +13,16 @@ enum KnobMode: String, CaseIterable {
     case midi = "MIDI"
     case custom = "Custom"
 
+    /// What the user reads; `rawValue` stays the stored and logged name.
+    var localizedName: String {
+        switch self {
+        case .volume:     return tr("Volume")
+        case .brightness: return tr("Brightness")
+        case .midi:       return tr("MIDI")
+        case .custom:     return tr("Custom")
+        }
+    }
+
     var icon: String {
         switch self {
         case .volume:     return "speaker.wave.2.fill"
@@ -150,10 +160,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         button.title = ""
         if !powerMate.isConnected {
             button.image = MenuBarIcon.disconnected()
-            button.setAccessibilityLabel("PowerMate Disconnected")
+            button.setAccessibilityLabel(tr("PowerMate Disconnected"))
         } else {
             button.image = currentMode.menuBarImage
-            button.setAccessibilityLabel("PowerMate: \(currentMode.rawValue) Mode")
+            button.setAccessibilityLabel(tr("PowerMate: %@ Mode", currentMode.localizedName))
         }
         button.imagePosition = .imageOnly
         NSLog("Menu: title='%@' connected=%d", button.title, powerMate.isConnected)
@@ -165,7 +175,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         // --- Connection Status ---
         let focusedName = focusedIdentity.map { deviceStore.record(for: $0).displayName }
-        let statusTitle = powerMate.isConnected ? "\(focusedName ?? "PowerMate") Connected" : "PowerMate Disconnected"
+        let statusTitle = powerMate.isConnected ? tr("%@ Connected", focusedName ?? "PowerMate") : tr("PowerMate Disconnected")
         let statusMenuItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         let dotColor: NSColor = powerMate.isConnected ? .systemGreen : .systemGray
         if let symbol = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
@@ -177,15 +187,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
                 rect.fill(using: .sourceAtop)
                 return true
             }
-            dot.accessibilityDescription = powerMate.isConnected ? "Connected" : "Disconnected"
+            dot.accessibilityDescription = powerMate.isConnected ? tr("Connected") : tr("Disconnected")
             statusMenuItem.image = dot
             keepImageVisible(statusMenuItem)
         }
         menu.addItem(statusMenuItem)
         
-        let hintItem = NSMenuItem(title: "Quick Start Guide", action: #selector(showQuickStart), keyEquivalent: "")
+        let hintItem = NSMenuItem(title: tr("Quick Start Guide"), action: #selector(showQuickStart), keyEquivalent: "")
         hintItem.target = self
-        if let img = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Quick Start Guide") {
+        if let img = NSImage(systemSymbolName: "info.circle", accessibilityDescription: tr("Quick Start Guide")) {
             hintItem.image = img
         }
         menu.addItem(hintItem)
@@ -199,7 +209,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         for mode in KnobMode.allCases {
             guard enabledModes.contains(mode) else { continue }
             let isCurrent = (mode == currentMode)
-            let item = NSMenuItem(title: mode.rawValue, action: #selector(switchToMode(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: mode.localizedName, action: #selector(switchToMode(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = mode.rawValue
             if let img = NSImage(systemSymbolName: mode.icon, accessibilityDescription: nil) {
@@ -210,7 +220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
             modeMenu.addItem(item)
         }
         
-        let modeHeader = NSMenuItem(title: "Active Mode: \(currentMode.rawValue)", action: nil, keyEquivalent: "")
+        let modeHeader = NSMenuItem(title: tr("Active Mode: %@", currentMode.localizedName), action: nil, keyEquivalent: "")
         modeHeader.submenu = modeMenu
         if let img = NSImage(systemSymbolName: currentMode.icon, accessibilityDescription: nil) {
             modeHeader.image = img
@@ -221,23 +231,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         // --- Controls Status ---
         let vol = volumeController.getVolume()
-        let volLabel = NSMenuItem(title: "Volume: \(Int(vol * 100))%", action: nil, keyEquivalent: "")
+        let volLabel = NSMenuItem(title: tr("Volume: %d%%", Int(vol * 100)), action: nil, keyEquivalent: "")
         volLabel.tag = 100
         if let img = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil) {
             volLabel.image = img
         }
         menu.addItem(volLabel)
 
-        let muteItem = NSMenuItem(title: volumeController.isMuted() ? "Unmute" : "Mute", action: #selector(toggleMuteClicked), keyEquivalent: "m")
+        let muteItem = NSMenuItem(title: volumeController.isMuted() ? tr("Unmute") : tr("Mute"), action: #selector(toggleMuteClicked), keyEquivalent: "m")
         setAlignmentSpacer(muteItem, matching: "speaker.wave.2.fill")
         muteItem.target = self
         menu.addItem(muteItem)
 
         let br = brightnessController.getCurrentBrightness()
         let brMethod = brightnessController.method
-        let brSuffix = brMethod.isSoftware ? "  [Software]" : ""
+        let brSuffix = brMethod.isSoftware ? "  " + tr("[Software]") : ""
         let displayName = brightnessController.activeDisplayName
-        let brLabel = NSMenuItem(title: "Brightness: \(Int(br * 100))%\(brSuffix) — \(displayName)", action: nil, keyEquivalent: "")
+        let brLabel = NSMenuItem(title: tr("Brightness: %d%%%@ — %@", Int(br * 100), brSuffix, displayName), action: nil, keyEquivalent: "")
         brLabel.tag = 101
         // Use warning icon when using software/gamma dimming
         let brIcon = brMethod.isSoftware ? "sun.max.trianglebadge.exclamationmark" : "sun.max.fill"
@@ -249,7 +259,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
         // Brightness warning when using software dimming
         if brMethod.isSoftware {
-            let warnItem = NSMenuItem(title: "Using software dimming (backlight unchanged)", action: nil, keyEquivalent: "")
+            let warnItem = NSMenuItem(title: tr("Using software dimming (backlight unchanged)"), action: nil, keyEquivalent: "")
             setAlignmentSpacer(warnItem, matching: "sun.max.fill")
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
@@ -262,7 +272,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(NSMenuItem.separator())
 
         // Settings — all advanced configuration lives in the Settings window.
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: tr("Settings..."), action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         setAlignmentSpacer(settingsItem, matching: "gearshape")
         menu.addItem(settingsItem)
@@ -270,19 +280,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         menu.addItem(NSMenuItem.separator())
 
         // About
-        let aboutItem = NSMenuItem(title: "About PowerMate...", action: #selector(showAboutWindow), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: tr("About PowerMate..."), action: #selector(showAboutWindow), keyEquivalent: "")
         aboutItem.target = self
         setAlignmentSpacer(aboutItem, matching: "info.circle")
         menu.addItem(aboutItem)
 
         // Report Issue (above Check for Updates, matching the About dialog entry point)
-        let reportItem = NSMenuItem(title: "Report Issue...", action: #selector(showIssueReporter), keyEquivalent: "")
+        let reportItem = NSMenuItem(title: tr("Report Issue..."), action: #selector(showIssueReporter), keyEquivalent: "")
         reportItem.target = self
         setAlignmentSpacer(reportItem, matching: "exclamationmark.bubble.fill")
         menu.addItem(reportItem)
 
         // Add update check menu item
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        let updateItem = NSMenuItem(title: tr("Check for Updates..."), action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         if updaterController == nil {
             updateItem.isEnabled = false
@@ -290,7 +300,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         setAlignmentSpacer(updateItem, matching: "arrow.down.circle")
         menu.addItem(updateItem)
 
-        let quitItem = NSMenuItem(title: "Quit PowerMate", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: tr("Quit PowerMate"), action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         setAlignmentSpacer(quitItem, matching: "power.circle")
         menu.addItem(quitItem)
@@ -622,7 +632,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         // Version info
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
-        let versionLabel = NSTextField(labelWithString: "Version \(version) (\(build))")
+        let versionLabel = NSTextField(labelWithString: tr("Version %@ (%@)", version, build))
         versionLabel.font = NSFont.systemFont(ofSize: 13)
         versionLabel.textColor = .secondaryLabelColor
         versionLabel.alignment = .center
@@ -634,7 +644,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         
         // Device status
         let connected = powerMate.isConnected
-        let deviceStatus = connected ? "🟢 PowerMate Connected" : "⚪️ PowerMate Disconnected"
+        let deviceStatus = connected ? "🟢 " + tr("PowerMate Connected") : "⚪️ " + tr("PowerMate Disconnected")
         let statusLabel = NSTextField(labelWithString: deviceStatus)
         statusLabel.font = NSFont.boldSystemFont(ofSize: 13)
         statusLabel.textColor = .labelColor
@@ -646,7 +656,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.addArrangedSubview(statusLabel)
         
         // Audio info
-        let audioInfo = "Audio: \(volumeController.activeDeviceName) (\(volumeController.volumeMethod.rawValue))"
+        let audioInfo = tr("Audio: %@ (%@)", volumeController.activeDeviceName, volumeController.volumeMethod.localizedName)
         let audioLabel = NSTextField(labelWithString: audioInfo)
         audioLabel.font = NSFont.systemFont(ofSize: 12)
         audioLabel.textColor = .secondaryLabelColor
@@ -658,7 +668,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.addArrangedSubview(audioLabel)
         
         // Brightness info
-        let brightnessInfo = "Brightness: \(brightnessController.method.rawValue)"
+        let brightnessInfo = tr("Brightness: %@", brightnessController.method.localizedName)
         let brightnessLabel = NSTextField(labelWithString: brightnessInfo)
         brightnessLabel.font = NSFont.systemFont(ofSize: 12)
         brightnessLabel.textColor = .secondaryLabelColor
@@ -670,7 +680,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.addArrangedSubview(brightnessLabel)
         
         // Tip about multi-display
-        let tipLabel = NSTextField(wrappingLabelWithString: "Tip: By default, the knob dims all displays together. You can uncheck 'Sync All Displays' in the menu to control each monitor individually based on mouse location.")
+        let tipLabel = NSTextField(wrappingLabelWithString: tr("Tip: By default, the knob dims all displays together. You can uncheck 'Sync All Displays' in the menu to control each monitor individually based on mouse location."))
         tipLabel.font = NSFont.systemFont(ofSize: 11)
         tipLabel.textColor = .secondaryLabelColor
         tipLabel.alignment = .center
@@ -695,7 +705,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         ])
         
         // Report Issue button (opens the prefilled report window)
-        let issueButton = NSButton(title: "Report Issue...", target: self, action: #selector(showIssueReporter))
+        let issueButton = NSButton(title: tr("Report Issue..."), target: self, action: #selector(showIssueReporter))
         issueButton.bezelStyle = .rounded
         container.addArrangedSubview(issueButton)
         
@@ -713,7 +723,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         wrapper.addSubview(container)
         
         alert.accessoryView = wrapper
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: tr("OK"))
 
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
@@ -734,7 +744,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let reportView = IssueReportView()
         let hostingController = NSHostingController(rootView: reportView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "Report Issue"
+        window.title = tr("Report Issue")
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         // Tall enough for the whole form: at 620 the intro and the buttons
         // were cut off.
@@ -788,7 +798,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         let settingsView = SettingsView()
         let hostingController = NSHostingController(rootView: settingsView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "Settings"
+        window.title = tr("Settings")
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 700, height: 520))
         window.minSize = NSSize(width: 560, height: 460)
@@ -803,7 +813,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
 
     @objc private func showQuickStart() {
         let alert = NSAlert()
-        alert.messageText = "Quick Start"
+        alert.messageText = tr("Quick Start")
         alert.alertStyle = .informational
         
         // Set custom icon (logo) at the top
@@ -836,10 +846,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         grid.columnSpacing = 16
         
         let actions = [
-            ("Turn knob", "Adjust volume or brightness"),
-            ("Press down", "Snap to preset level (toggle)"),
-            ("Double-tap", "Mute audio or sleep display"),
-            ("Press & hold", "Cycle modes (Vol / Bright / MIDI)")
+            (tr("Turn knob"), tr("Adjust volume or brightness")),
+            (tr("Press down"), tr("Snap to preset level (toggle)")),
+            (tr("Double-tap"), tr("Mute audio or sleep display")),
+            (tr("Press & hold"), tr("Cycle modes (Vol / Bright / MIDI)"))
         ]
         
         for (action, desc) in actions {
@@ -865,7 +875,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         container.addArrangedSubview(grid)
         
         // 3. Footer Text
-        let footer = NSTextField(wrappingLabelWithString: "You can configure the active mode, output device, and rotation sensitivity using this menu.")
+        let footer = NSTextField(wrappingLabelWithString: tr("You can configure the active mode, output device, and rotation sensitivity using this menu."))
         footer.font = NSFont.systemFont(ofSize: 12)
         footer.textColor = .secondaryLabelColor
         footer.alignment = .center
@@ -895,7 +905,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         wrapper.addSubview(container)
         
         alert.accessoryView = wrapper
-        alert.addButton(withTitle: "Got it")
+        alert.addButton(withTitle: tr("Got it"))
         
         // Ensure the alert appears in front of everything
         NSApp.activate(ignoringOtherApps: true)
@@ -927,7 +937,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         
         if let volItem = menu.item(withTag: 100) {
             volItem.attributedTitle = attributedLevelTitle(
-                "Volume",
+                tr("Volume"),
                 level: volumeController.getVolume(),
                 isVirtual: volumeController.isSoftwareVolume,
                 isAvailable: true
@@ -936,7 +946,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
         
         if let brItem = menu.item(withTag: 101) {
             brItem.attributedTitle = attributedLevelTitle(
-                "Brightness",
+                tr("Brightness"),
                 level: brightnessController.getCurrentBrightness(),
                 isVirtual: brightnessController.isVirtual,
                 isAvailable: brightnessController.isAvailable
@@ -945,8 +955,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, PowerMateDelegate, VolumeCha
     }
 
     private func attributedLevelTitle(_ base: String, level: Float, isVirtual: Bool, isAvailable: Bool) -> NSAttributedString {
-        let percentage = "\(Int(level * 100))%"
-        let methodText = !isAvailable ? "Unavailable" : (isVirtual ? "Virtual" : "Hardware")
+        let percentage = tr("%d%%", Int(level * 100))
+        let methodText = !isAvailable ? tr("Unavailable") : (isVirtual ? tr("Virtual") : tr("Hardware"))
         
         let fullString = "\(base): \(percentage)   \(methodText)"
         

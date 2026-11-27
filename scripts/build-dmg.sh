@@ -78,6 +78,16 @@ if [[ -d "$PROJECT_DIR/Sources/Resources" ]]; then
     cp -R "$PROJECT_DIR/Sources/Resources/"* "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
 fi
 
+# Translations are <language>.lproj folders in Resources. A bundle without them
+# shows English only, silently, so refuse to ship one.
+for LPROJ in "$PROJECT_DIR/Sources/Resources/"*.lproj; do
+    [[ -d "$LPROJ" ]] || continue
+    if [[ ! -f "$APP_BUNDLE/Contents/Resources/$(basename "$LPROJ")/Localizable.strings" ]]; then
+        echo "ERROR: $(basename "$LPROJ")/Localizable.strings did not reach the app bundle"
+        exit 1
+    fi
+done
+
 # Copy Sparkle Framework into bundle.
 # Discover the framework wherever SwiftPM put it this time — the old hardcoded
 # .build/artifacts path only exists after certain SwiftPM versions ran, and a
@@ -125,6 +135,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>fi</string>
+    </array>
     <key>CFBundleExecutable</key>
     <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>

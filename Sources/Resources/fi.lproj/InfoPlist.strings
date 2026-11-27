@@ -1,0 +1,3 @@
+/* Finnish (suomi) texts macOS shows in permission prompts. */
+"NSBluetoothAlwaysUsageDescription" = "PowerMateReborn käyttää Bluetoothia viestiäkseen Griffin PowerMate -Bluetooth-ohjaimen kanssa.";
+"NSAppleEventsUsageDescription" = "PowerMateReborn käyttää Apple Events -tapahtumia Apple Musicin äänenvoimakkuuden ohjaamiseen ja järjestelmän äänenvoimakkuuden asettamiseen laitteilla, joilla ei ole laitteiston äänenvoimakkuussäätöä.";

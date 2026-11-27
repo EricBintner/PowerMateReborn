@@ -3,6 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "PowerMateDriver",
+    // The English text in the code is the base language; fi.lproj translates it.
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],

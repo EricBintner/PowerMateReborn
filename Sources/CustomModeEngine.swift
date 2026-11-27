@@ -19,14 +19,14 @@ enum CodableActionType: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .unassigned: return "Unassigned"
-        case .scroll:     return "Scroll"
-        case .keyboard:   return "Keyboard Shortcut"
-        case .media:      return "Media Control"
-        case .midiCC:     return "MIDI CC (Continuous)"
-        case .midiNote:   return "MIDI Note"
-        case .osc:        return "OSC Message"
-        case .volume:     return "Volume"
+        case .unassigned: return tr("Unassigned")
+        case .scroll:     return tr("Scroll")
+        case .keyboard:   return tr("Keyboard Shortcut")
+        case .media:      return tr("Media Control")
+        case .midiCC:     return tr("MIDI CC (Continuous)")
+        case .midiNote:   return tr("MIDI Note")
+        case .osc:        return tr("OSC Message")
+        case .volume:     return tr("Volume")
         }
     }
 }
@@ -38,20 +38,37 @@ enum CodableHoldBehavior: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .longPress:     return "Long Press (Trigger after delay)"
-        case .extendedPress: return "Extended Press (Hold to sustain)"
+        case .longPress:     return tr("Long Press (Trigger after delay)")
+        case .extendedPress: return tr("Extended Press (Hold to sustain)")
         }
     }
 }
 
 enum ScrollDirection: String, Codable, CaseIterable {
     case up, down, left, right
+
+    var localizedName: String {
+        switch self {
+        case .up:    return tr("Up")
+        case .down:  return tr("Down")
+        case .left:  return tr("Left")
+        case .right: return tr("Right")
+        }
+    }
 }
 
 enum MediaCommand: String, Codable, CaseIterable {
     case playPause = "Play/Pause"
     case nextTrack = "Next"
     case prevTrack = "Prev"
+
+    var localizedName: String {
+        switch self {
+        case .playPause: return tr("Play/Pause")
+        case .nextTrack: return tr("Next")
+        case .prevTrack: return tr("Prev")
+        }
+    }
 }
 
 struct KeyboardShortcut: Codable, Equatable {

@@ -26,6 +26,16 @@ enum VolumeControlMethod: String {
 
     /// True for the internal software gain fallback
     var isSoftware: Bool { return self == .softwareVolume }
+
+    /// What the user reads; `rawValue` stays the logged and reported name.
+    /// Names of the underlying technologies stay as they are.
+    var localizedName: String {
+        switch self {
+        case .softwareVolume: return tr("Software Volume")
+        case .none:           return tr("None")
+        default:              return rawValue
+        }
+    }
 }
 
 struct AudioDeviceInfo {

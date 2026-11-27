@@ -13,6 +13,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var title: String {
+        switch self {
+        case .general:  return tr("General")
+        case .audio:    return tr("Audio")
+        case .knob:     return tr("Knob")
+        case .displays: return tr("Displays")
+        case .midi:     return tr("MIDI")
+        case .custom:   return tr("Custom")
+        }
+    }
+
     var icon: String {
         switch self {
         case .general: return "gearshape"
@@ -25,6 +36,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// A level as a percentage, in the user's own way of writing one.
+private func percentText(_ fraction: Float) -> String {
+    return tr("%d%%", Int((fraction * 100).rounded()))
+}
+
 // MARK: - Root view
 
 struct SettingsView: View {
@@ -34,7 +50,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(SettingsSection.allCases, selection: $selectedSection) { section in
-                Label(section.rawValue, systemImage: section.icon)
+                Label(section.title, systemImage: section.icon)
                     .tag(section)
             }
             .navigationSplitViewColumnWidth(min: 140, ideal: 160, max: 200)
@@ -56,7 +72,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Settings")
+        .navigationTitle(tr("Settings"))
         .frame(minWidth: 560, minHeight: 460)
         .onAppear { model.refresh() }
     }
@@ -69,12 +85,12 @@ struct SettingsView: View {
             Image(systemName: "dial.min")
                 .foregroundColor(.secondary)
             if model.knownDevices.count > 1 {
-                Picker("Knob", selection: Binding(
+                Picker(tr("Knob"), selection: Binding(
                     get: { model.selectedIdentity ?? "" },
                     set: { model.selectDevice($0) }
                 )) {
                     ForEach(model.knownDevices) { device in
-                        Text(device.connected ? device.displayName : "\(device.displayName) (disconnected)")
+                        Text(device.connected ? device.displayName : tr("%@ (disconnected)", device.displayName))
                             .tag(device.identity)
                     }
                 }
@@ -84,12 +100,12 @@ struct SettingsView: View {
                 Text(device.displayName)
                     .font(.headline)
                 if !device.connected {
-                    Text("disconnected")
+                    Text(tr("disconnected"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             } else {
-                Text("No PowerMate connected yet")
+                Text(tr("No PowerMate connected yet"))
                     .foregroundColor(.secondary)
             }
             Spacer()
@@ -179,20 +195,20 @@ private struct GeneralSettingsSection: View {
 
     var body: some View {
         SettingsForm {
-            Text("General").font(.title2).bold().padding(.bottom, 4)
-            SettingRow(icon: "power", title: "Launch at Login") {
+            Text(tr("General")).font(.title2).bold().padding(.bottom, 4)
+            SettingRow(icon: "power", title: tr("Launch at Login")) {
                 Toggle("", isOn: binding(\.launchAtLogin, model.setLaunchAtLogin))
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
             Divider().padding(.vertical, 12)
-            Text("Enabled Modes").font(.headline).padding(.bottom, 8)
-            Text("Which modes the knob can switch between (long-press cycles modes).")
+            Text(tr("Enabled Modes")).font(.headline).padding(.bottom, 8)
+            Text(tr("Which modes the knob can switch between (long-press cycles modes)."))
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.bottom, 8)
             ForEach(KnobMode.allCases, id: \.self) { mode in
-                SettingRow(icon: mode.icon, title: mode.rawValue) {
+                SettingRow(icon: mode.icon, title: mode.localizedName) {
                     Toggle("", isOn: Binding(
                         get: { model.enabledModes.contains(mode) },
                         set: { model.setModeEnabled(mode, $0) }
@@ -214,15 +230,17 @@ private struct GeneralSettingsSection: View {
 private struct AudioSettingsSection: View {
     @ObservedObject private var model = SettingsModel.shared
 
-    private static let volumeSnapChoices: [(label: String, value: Float)] = [
-        ("Mute 0%", 0.0), ("Low 20%", 0.20), ("Medium 50%", 0.50), ("High 80%", 0.80)
-    ]
+    private static var volumeSnapChoices: [(label: String, value: Float)] {
+        [
+            (tr("Mute 0%"), 0.0), (tr("Low 20%"), 0.20), (tr("Medium 50%"), 0.50), (tr("High 80%"), 0.80)
+        ]
+    }
 
     var body: some View {
         SettingsForm {
-            Text("Audio").font(.title2).bold().padding(.bottom, 4)
-            SettingRow(icon: "headphones", title: "Output Device",
-                       help: "Output this knob controls. Stored on the knob shown above.") {
+            Text(tr("Audio")).font(.title2).bold().padding(.bottom, 4)
+            SettingRow(icon: "headphones", title: tr("Output Device"),
+                       help: tr("Output this knob controls. Stored on the knob shown above.")) {
                 Picker("", selection: Binding(
                     get: { model.activeDeviceID },
                     set: { model.setActiveDevice($0) }
@@ -232,7 +250,7 @@ private struct AudioSettingsSection: View {
                               ? "speaker.wave.2" : "speaker.slash")
                             .tag(dev.deviceID)
                     }
-                    Label("Apple Music", systemImage: "music.note")
+                    Label(tr("Apple Music"), systemImage: "music.note")
                         .tag(AudioDeviceID(9999))
                 }
                 .labelsHidden()
@@ -240,9 +258,9 @@ private struct AudioSettingsSection: View {
                 .frame(maxWidth: 220)
             }
             Divider().padding(.vertical, 12)
-            Text("Double-Tap Actions").font(.headline).padding(.bottom, 8)
-            SettingRow(icon: "speaker.wave.2", title: "Volume Tap Level",
-                       help: "Volume the knob jumps to on a double tap.") {
+            Text(tr("Double-Tap Actions")).font(.headline).padding(.bottom, 8)
+            SettingRow(icon: "speaker.wave.2", title: tr("Volume Tap Level"),
+                       help: tr("Volume the knob jumps to on a double tap.")) {
                 Picker("", selection: Binding(
                     get: { nearestSnap(model.volumeSnapValue, Self.volumeSnapChoices.map { $0.value }) },
                     set: { model.setVolumeSnap($0) }
@@ -255,9 +273,9 @@ private struct AudioSettingsSection: View {
                 .pickerStyle(.segmented)
             }
             Divider().padding(.vertical, 12)
-            Text("Diagnostics").font(.headline).padding(.bottom, 4)
-            DiagnosticRow(label: "Active device", value: model.activeDeviceName)
-            DiagnosticRow(label: "Control method", value: model.volumeMethod.rawValue)
+            Text(tr("Diagnostics")).font(.headline).padding(.bottom, 4)
+            DiagnosticRow(label: tr("Active device"), value: model.activeDeviceName)
+            DiagnosticRow(label: tr("Control method"), value: model.volumeMethod.localizedName)
         }
     }
 
@@ -276,15 +294,15 @@ private struct KnobSettingsSection: View {
     @ObservedObject private var model = SettingsModel.shared
     @State private var showAdvanced = false
 
-    private static let sensitivityChoices: [(label: String, value: Float)] = [
-        ("1%", 0.01), ("3%", 0.03), ("5%", 0.05), ("8%", 0.08)
-    ]
+    private static var sensitivityChoices: [(label: String, value: Float)] {
+        [0.01, 0.03, 0.05, 0.08].map { (percentText($0), $0) }
+    }
 
     var body: some View {
         SettingsForm {
-            Text("Knob").font(.title2).bold().padding(.bottom, 4)
-            SettingRow(icon: "dial.min", title: "Sensitivity",
-                       help: "How much volume/brightness changes per rotation tick.") {
+            Text(tr("Knob")).font(.title2).bold().padding(.bottom, 4)
+            SettingRow(icon: "dial.min", title: tr("Sensitivity"),
+                       help: tr("How much volume/brightness changes per rotation tick.")) {
                 Picker("", selection: Binding(
                     get: { nearestSnap(model.stepSize, Self.sensitivityChoices.map { $0.value }) },
                     set: { model.setStepSize($0) }
@@ -298,9 +316,9 @@ private struct KnobSettingsSection: View {
                 .frame(maxWidth: 260)
             }
             Divider().padding(.vertical, 12)
-            Text("LED").font(.headline).padding(.bottom, 8)
-            SettingRow(icon: "lightbulb", title: "Follow Level",
-                       help: "LED brightness tracks the current volume/brightness.") {
+            Text(tr("LED")).font(.headline).padding(.bottom, 8)
+            SettingRow(icon: "lightbulb", title: tr("Follow Level"),
+                       help: tr("LED brightness tracks the current volume/brightness.")) {
                 Toggle("", isOn: Binding(
                     get: { model.ledMode == .followLevel },
                     set: { model.setLEDMode($0 ? .followLevel : .dim) }
@@ -309,13 +327,13 @@ private struct KnobSettingsSection: View {
                 .toggleStyle(.switch)
             }
             if model.ledMode != .followLevel {
-                SettingRow(icon: "lightbulb.fill", title: "Static Brightness") {
+                SettingRow(icon: "lightbulb.fill", title: tr("Static Brightness")) {
                     Picker("", selection: Binding(
                         get: { model.ledMode },
                         set: { model.setLEDMode($0) }
                     )) {
-                        Text("Off").tag(LEDMode.off)
-                        Text("Dim").tag(LEDMode.dim)
+                        Text(tr("Off")).tag(LEDMode.off)
+                        Text(tr("Dim")).tag(LEDMode.dim)
                         BrightnessOptionPicker()
                     }
                     .labelsHidden()
@@ -328,30 +346,30 @@ private struct KnobSettingsSection: View {
                 Image(systemName: showAdvanced ? "chevron.down" : "chevron.right")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Button("Advanced") { withAnimation { showAdvanced.toggle() } }
+                Button(tr("Advanced")) { withAnimation { showAdvanced.toggle() } }
                     .buttonStyle(.link)
                     .font(.headline)
             }
             .padding(.bottom, 8)
             if showAdvanced {
-                SettingRow(icon: "hand.draw", title: "Long Press Threshold",
-                           help: "How long the button must be held to count as a long press. USB knob only: the Bluetooth knob uses its own timing, about one second.") {
+                SettingRow(icon: "hand.draw", title: tr("Long Press Threshold"),
+                           help: tr("How long the button must be held to count as a long press. USB knob only: the Bluetooth knob uses its own timing, about one second.")) {
                     Stepper(value: Binding(
                         get: { model.longPressThreshold },
                         set: { model.setLongPressThreshold(min(2.0, max(0.1, $0))) }
                     ), in: 0.1...2.0, step: 0.1) {
-                        Text(String(format: "%.1f s", model.longPressThreshold))
+                        Text(tr("%.1f s", model.longPressThreshold))
                             .monospacedDigit()
                             .frame(width: 52, alignment: .trailing)
                     }
                 }
-                SettingRow(icon: "hand.tap", title: "Double Tap Interval",
-                           help: "Maximum gap between taps for a double tap. Double tap is not available on the Bluetooth knob yet.") {
+                SettingRow(icon: "hand.tap", title: tr("Double Tap Interval"),
+                           help: tr("Maximum gap between taps for a double tap. Double tap is not available on the Bluetooth knob yet.")) {
                     Stepper(value: Binding(
                         get: { model.doubleTapInterval },
                         set: { model.setDoubleTapInterval(min(0.8, max(0.05, $0))) }
                     ), in: 0.05...0.8, step: 0.05) {
-                        Text(String(format: "%.2f s", model.doubleTapInterval))
+                        Text(tr("%.2f s", model.doubleTapInterval))
                             .monospacedDigit()
                             .frame(width: 52, alignment: .trailing)
                     }
@@ -368,7 +386,7 @@ private struct KnobSettingsSection: View {
 /// Third segmented option — split out so its tag type matches (LEDMode).
 private struct BrightnessOptionPicker: View {
     var body: some View {
-        Text("Bright").tag(LEDMode.bright)
+        Text(tr("Bright")).tag(LEDMode.bright)
     }
 }
 
@@ -377,15 +395,15 @@ private struct BrightnessOptionPicker: View {
 private struct DisplaysSettingsSection: View {
     @ObservedObject private var model = SettingsModel.shared
 
-    private static let brightnessSnapChoices: [(label: String, value: Float)] = [
-        ("15%", 0.15), ("33%", 0.33), ("50%", 0.50), ("67%", 0.67), ("100%", 1.0)
-    ]
+    private static var brightnessSnapChoices: [(label: String, value: Float)] {
+        [0.15, 0.33, 0.50, 0.67, 1.0].map { (percentText($0), $0) }
+    }
 
     var body: some View {
         SettingsForm {
-            Text("Displays").font(.title2).bold().padding(.bottom, 4)
-            SettingRow(icon: "display", title: "Hardware Brightness (DDC/CI)",
-                       help: "Change the real backlight via the monitor's DDC/CI interface. Disable if a display misbehaves.") {
+            Text(tr("Displays")).font(.title2).bold().padding(.bottom, 4)
+            SettingRow(icon: "display", title: tr("Hardware Brightness (DDC/CI)"),
+                       help: tr("Change the real backlight via the monitor's DDC/CI interface. Disable if a display misbehaves.")) {
                 Toggle("", isOn: Binding(
                     get: { model.ddcEnabled },
                     set: { model.setDDCEnabled($0) }
@@ -393,8 +411,8 @@ private struct DisplaysSettingsSection: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
             }
-            SettingRow(icon: "display.2", title: "Sync All Displays",
-                       help: "Adjust all displays together. Off: only the display under the mouse.") {
+            SettingRow(icon: "display.2", title: tr("Sync All Displays"),
+                       help: tr("Adjust all displays together. Off: only the display under the mouse.")) {
                 Toggle("", isOn: Binding(
                     get: { model.syncDisplays },
                     set: { model.setSyncDisplays($0) }
@@ -403,9 +421,9 @@ private struct DisplaysSettingsSection: View {
                 .toggleStyle(.switch)
             }
             Divider().padding(.vertical, 12)
-            Text("Double-Tap Actions").font(.headline).padding(.bottom, 8)
-            SettingRow(icon: "sun.max", title: "Brightness Tap Level",
-                       help: "Brightness the knob jumps to on a double tap.") {
+            Text(tr("Double-Tap Actions")).font(.headline).padding(.bottom, 8)
+            SettingRow(icon: "sun.max", title: tr("Brightness Tap Level"),
+                       help: tr("Brightness the knob jumps to on a double tap.")) {
                 Picker("", selection: Binding(
                     get: { nearestSnap(model.brightnessSnapValue, Self.brightnessSnapChoices.map { $0.value }) },
                     set: { model.setBrightnessSnap($0) }
@@ -418,9 +436,9 @@ private struct DisplaysSettingsSection: View {
                 .pickerStyle(.segmented)
             }
             Divider().padding(.vertical, 12)
-            Text("Diagnostics").font(.headline).padding(.bottom, 4)
-            DiagnosticRow(label: "Active display", value: model.activeDisplayName)
-            DiagnosticRow(label: "Control method", value: model.brightnessMethod.rawValue)
+            Text(tr("Diagnostics")).font(.headline).padding(.bottom, 4)
+            DiagnosticRow(label: tr("Active display"), value: model.activeDisplayName)
+            DiagnosticRow(label: tr("Control method"), value: model.brightnessMethod.localizedName)
         }
     }
 
@@ -434,18 +452,18 @@ private struct DisplaysSettingsSection: View {
 private struct MIDISettingsSection: View {
     @ObservedObject private var model = SettingsModel.shared
 
-    private static let ccChoices: [(label: String, value: UInt8)] = [
-        ("Mod", 1), ("Volume", 7), ("Expr", 11), ("Filter", 74)
-    ]
+    private static var ccChoices: [(label: String, value: UInt8)] {
+        [(tr("Mod"), 1), (tr("Volume"), 7), (tr("Expr"), 11), (tr("Filter"), 74)]
+    }
 
     var body: some View {
         SettingsForm {
-            Text("MIDI").font(.title2).bold().padding(.bottom, 4)
-            Text("The knob appears to music apps as a virtual MIDI controller named \"PowerMate Knob\".")
+            Text(tr("MIDI")).font(.title2).bold().padding(.bottom, 4)
+            Text(tr("The knob appears to music apps as a virtual MIDI controller named \"PowerMate Knob\"."))
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.bottom, 12)
-            SettingRow(icon: "pianokeys", title: "CC Number") {
+            SettingRow(icon: "pianokeys", title: tr("CC Number")) {
                 Picker("", selection: Binding(
                     get: { model.midiCCNumber },
                     set: { model.setMIDICC($0) }
@@ -457,19 +475,19 @@ private struct MIDISettingsSection: View {
                 .labelsHidden()
                 .pickerStyle(.segmented)
             }
-            SettingRow(icon: "waveform", title: "Channel") {
+            SettingRow(icon: "waveform", title: tr("Channel")) {
                 Picker("", selection: Binding(
                     get: { model.midiChannel + 1 },
                     set: { model.setMIDIChannel($0 - 1) }
                 )) {
                     ForEach([1, 2, 10, 16], id: \.self) { ch in
-                        Text("Ch \(ch)").tag(ch)
+                        Text(tr("Ch %d", ch)).tag(ch)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
             }
-            Text("MIDI is only sent while the knob is in MIDI mode (cycle modes with a long press).")
+            Text(tr("MIDI is only sent while the knob is in MIDI mode (cycle modes with a long press)."))
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.top, 8)
@@ -487,7 +505,7 @@ struct CustomProfilesSection: View {
     var body: some View {
         HSplitView {
             List(selection: $selectedProfileID) {
-                Section(header: Text("Profiles")) {
+                Section(header: Text(tr("Profiles"))) {
                     ForEach(engine.profiles) { profile in
                         HStack {
                             Image(systemName: profile.iconName)
@@ -497,7 +515,7 @@ struct CustomProfilesSection: View {
                                 Text(profile.name)
                                     .fontWeight(profile.isGlobal ? .medium : .regular)
                                 if engine.activeProfileID == profile.id {
-                                    Text("Active")
+                                    Text(tr("Active"))
                                         .font(.caption2)
                                         .foregroundColor(.green)
                                 }
@@ -506,7 +524,7 @@ struct CustomProfilesSection: View {
                         .tag(profile.id)
                         .contextMenu {
                             if !profile.isGlobal {
-                                Button("Remove") {
+                                Button(tr("Remove")) {
                                     engine.removeProfile(id: profile.id)
                                     if selectedProfileID == profile.id {
                                         selectedProfileID = engine.profiles.first?.id
@@ -544,7 +562,7 @@ struct CustomProfilesSection: View {
                         // which require Accessibility; without it they silently
                         // do nothing on a fresh macOS install.
                         Label(
-                            "Scroll and keyboard actions need Accessibility permission (System Settings > Privacy & Security > Accessibility).",
+                            tr("Scroll and keyboard actions need Accessibility permission (System Settings > Privacy & Security > Accessibility)."),
                             systemImage: "exclamationmark.triangle"
                         )
                         .font(.caption)
@@ -557,7 +575,7 @@ struct CustomProfilesSection: View {
                 }
                 .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Text("Select an application profile to configure Custom Mode.")
+                Text(tr("Select an application profile to configure Custom Mode."))
                     .foregroundColor(.secondary)
                     .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
             }
